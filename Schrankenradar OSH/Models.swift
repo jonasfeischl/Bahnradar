@@ -6,36 +6,41 @@ enum CrossingStatus: Equatable {
     case open
     case warning
     case closed
+    case opening  // Zug gerade durchgefahren, Schranke öffnet gleich
 
     var color: Color {
         switch self {
-        case .open: .green
+        case .open:    .green
         case .warning: .yellow
-        case .closed: .red
+        case .closed:  .red
+        case .opening: .yellow
         }
     }
 
     var label: String {
         switch self {
-        case .open: "Vermutlich offen"
+        case .open:    "Vermutlich offen"
         case .warning: "Schließt bald"
-        case .closed: "Wahrscheinlich geschlossen"
+        case .closed:  "Wahrscheinlich geschlossen"
+        case .opening: "Öffnet gleich"
         }
     }
 
     var emoji: String {
         switch self {
-        case .open: "🟢"
+        case .open:    "🟢"
         case .warning: "🟡"
-        case .closed: "🔴"
+        case .closed:  "🔴"
+        case .opening: "🟡"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .open: "checkmark.circle.fill"
+        case .open:    "checkmark.circle.fill"
         case .warning: "exclamationmark.triangle.fill"
-        case .closed: "xmark.octagon.fill"
+        case .closed:  "xmark.octagon.fill"
+        case .opening: "arrow.up.circle.fill"
         }
     }
 }
@@ -71,6 +76,8 @@ struct CrossingEvent: Identifiable {
     let id: String
     let train: TrainDeparture
     let estimatedCrossingTime: Date
+    /// Wie lange die Schranke nach Zugdurchfahrt geschlossen bleibt (in Minuten)
+    let openingDelayMinutes: Double
 
     var minutesUntil: Double {
         estimatedCrossingTime.timeIntervalSinceNow / 60
@@ -78,9 +85,10 @@ struct CrossingEvent: Identifiable {
 
     var status: CrossingStatus {
         let minutes = minutesUntil
-        if minutes > 3 { return .open }
-        if minutes > 1 { return .warning }
-        if minutes > -0.5 { return .closed }
+        if minutes > 3              { return .open }
+        if minutes > 1              { return .warning }
+        if minutes > -openingDelayMinutes { return .closed }
+        if minutes > -openingDelayMinutes - 1.5 { return .opening }  // Zug durch, öffnet gerade
         return .open
     }
 }

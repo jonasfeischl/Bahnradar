@@ -52,7 +52,7 @@ final class CrossingViewModel {
                 let base: Double = train.direction == .toMunich
                     ? crossingOffsetSeconds
                     : -crossingOffsetSeconds
-                let offset = feedback.totalOffset(base: base)
+                let offset = feedback.totalClosingOffset(base: base)
 
                 let crossingTime = train.actualTime.addingTimeInterval(offset)
                 guard crossingTime.timeIntervalSinceNow > -30 else { return nil }
@@ -67,15 +67,32 @@ final class CrossingViewModel {
                     delayMinutes: train.delayMinutes,
                     isArrival: false
                 )
-                return CrossingEvent(id: train.id, train: departure, estimatedCrossingTime: crossingTime)
+                return CrossingEvent(
+                    id: train.id,
+                    train: departure,
+                    estimatedCrossingTime: crossingTime,
+                    openingDelayMinutes: feedback.totalOpeningDelay / 60
+                )
             }
             .sorted { $0.estimatedCrossingTime < $1.estimatedCrossingTime }
     }
 
     var worstUpcomingStatus: CrossingStatus {
-        let upcoming = nextEvents.filter { $0.minutesUntil > -0.5 && $0.minutesUntil < 5 }
-        if upcoming.contains(where: { $0.status == .closed }) { return .closed }
-        if upcoming.contains(where: { $0.status == .warning }) { return .warning }
+        // Alle Events im relevanten Fenster (-2 min bis +5 min)
+        let upcoming = nextEvents.filter { $0.minutesUntil > -2 && $0.minutesUntil < 5 }
+
+        let hasClosed  = upcoming.contains(where: { $0.status == .closed })
+        let hasWarning = upcoming.contains(where: { $0.status == .warning })
+        let hasOpening = upcoming.contains(where: { $0.status == .opening })
+
+        // Wenn gerade geschlossen UND bald wieder ein Zug kommt → bleibt geschlossen
+        if hasClosed && hasWarning { return .closed }
+        if hasClosed { return .closed }
+
+        // Kein Zug mehr kommt bald → Schranke öffnet
+        if hasOpening && !hasWarning { return .opening }
+
+        if hasWarning { return .warning }
         return .open
     }
 }

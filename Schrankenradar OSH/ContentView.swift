@@ -6,8 +6,8 @@ struct ContentView: View {
     @State private var locationMonitor   = LocationMonitor()
     @State private var voiceAnnouncer    = VoiceAnnouncer()
     @State private var lastSpokenStatus: CrossingStatus? = nil
-    @State private var showFeedbackSheet = false
-    @State private var feedbackNote = ""
+    @State private var showFeedbackSheet  = false
+    @State private var showFeedbackHistory = false
 
     private var voiceActive: Bool {
         drivingDetector.isDriving && locationMonitor.isNearCrossing
@@ -151,7 +151,6 @@ struct ContentView: View {
                 }
 
                 Button {
-                    feedbackNote = ""
                     showFeedbackSheet = true
                 } label: {
                     Label("Stimmt nicht", systemImage: "xmark.circle.fill")
@@ -162,14 +161,7 @@ struct ContentView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 .sheet(isPresented: $showFeedbackSheet) {
-                    FeedbackSheet(
-                        note: $feedbackNote,
-                        currentStatus: viewModel.worstUpcomingStatus
-                    ) { note in
-                        viewModel.feedback.submitIncorrect(
-                            currentStatus: viewModel.worstUpcomingStatus,
-                            note: note
-                        )
+                    FeedbackSheet(learner: viewModel.feedback) {
                         Task { await viewModel.fetchData() }
                     }
                 }
@@ -184,9 +176,27 @@ struct ContentView: View {
             }
 
             if viewModel.feedback.feedbackCount > 0 {
-                Text("Gelernt aus \(viewModel.feedback.feedbackCount) Rückmeldungen · Versatz \(Int(viewModel.feedback.offsetAdjustment > 0 ? viewModel.feedback.offsetAdjustment : -viewModel.feedback.offsetAdjustment))s \(viewModel.feedback.offsetAdjustment >= 0 ? "früher" : "später")")
+                Text(viewModel.feedback.debugDescription)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+            }
+
+            // Mein Feedback
+            if !viewModel.feedback.history.isEmpty {
+                Button {
+                    showFeedbackHistory = true
+                } label: {
+                    Label("Mein Feedback (\(viewModel.feedback.history.count))", systemImage: "list.bullet.clipboard")
+                        .font(.caption)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color(.tertiarySystemBackground))
+                        .foregroundStyle(.secondary)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .sheet(isPresented: $showFeedbackHistory) {
+                    FeedbackHistoryView(learner: viewModel.feedback)
+                }
             }
         }
         .padding()
@@ -298,79 +308,105 @@ struct TrainEventRow: View {
 // MARK: - Feedback Sheet
 
 struct FeedbackSheet: View {
-    @Binding var note: String
-    let currentStatus: CrossingStatus
-    let onSubmit: (String) -> Void
+    let learner: FeedbackLearner
+    let onDone: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var stepInput: String = ""
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Was war falsch?")
-                        .font(.headline)
-                    Text("Aktuelle Anzeige: \(currentStatus.emoji) \(currentStatus.label)")
+            VStack(alignment: .leading, spacing: 24) {
+
+                Text("Was hat nicht gestimmt?")
+                    .font(.headline)
+
+                // --- Schrittgröße ---
+                HStack(spacing: 8) {
+                    Text("Schrittgröße:")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Beschreibung (optional)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextEditor(text: $note)
-                        .frame(minHeight: 60)
-                        .overlay(alignment: .topLeading) {
-                            if note.isEmpty {
-                                Text("z.B. 'Schranke war 2 min zu fruh rot' oder 'Zug kam nicht'")
-                                    .foregroundStyle(.tertiary)
-                                    .padding(.top, 8)
-                                    .padding(.leading, 4)
-                                    .allowsHitTesting(false)
+                    TextField("\(Int(learner.stepSeconds))s", text: $stepInput)
+                        .keyboardType(.numberPad)
+                        .frame(width: 60)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color(.secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .onChange(of: stepInput) { _, newValue in
+                            if let val = Double(newValue), val > 0 {
+                                learner.saveStepSeconds(val)
                             }
                         }
-                        .lineLimit(3...6)
-                        .padding(12)
-                        .background(Color(.secondarySystemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-
-                // Schnellauswahl-Chips
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Schnellauswahl")
+                    Text("Sekunden pro Korrektur")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    FlowLayout(spacing: 8) {
-                        ForEach(quickOptions, id: \.self) { option in
-                            Button(option) {
-                                note = option
-                            }
-                            .font(.caption)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(note == option ? Color.red.opacity(0.2) : Color(.secondarySystemBackground))
-                            .foregroundStyle(note == option ? .red : .primary)
-                            .clipShape(Capsule())
+                }
+                .onAppear { stepInput = "\(Int(learner.stepSeconds))" }
+
+                // --- Schranke: Schließen ---
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Schranke schließen", systemImage: "arrow.down.to.line")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.red)
+
+                    HStack(spacing: 12) {
+                        feedbackButton(
+                            title: "Zu früh rot",
+                            subtitle: "App zeigte rot, Schranke war noch offen",
+                            icon: "clock.badge.xmark",
+                            color: .orange
+                        ) {
+                            learner.submitTooEarlyRed()
+                        }
+
+                        feedbackButton(
+                            title: "Zu spät rot",
+                            subtitle: "Schranke war schon zu, App noch grün",
+                            icon: "clock.badge.checkmark",
+                            color: .red
+                        ) {
+                            learner.submitTooLateRed()
+                        }
+                    }
+                }
+
+                Divider()
+
+                // --- Schranke: Öffnen ---
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Schranke öffnen", systemImage: "arrow.up.to.line")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.green)
+
+                    HStack(spacing: 12) {
+                        feedbackButton(
+                            title: "Zu früh grün",
+                            subtitle: "App zeigte grün, Schranke war noch zu",
+                            icon: "clock.badge.xmark",
+                            color: .orange
+                        ) {
+                            learner.submitTooEarlyGreen()
+                        }
+
+                        feedbackButton(
+                            title: "Zu spät grün",
+                            subtitle: "Schranke war schon offen, App noch rot",
+                            icon: "clock.badge.checkmark",
+                            color: .green
+                        ) {
+                            learner.submitTooLateGreen()
                         }
                     }
                 }
 
                 Spacer()
 
-                Button {
-                    onSubmit(note)
-                    dismiss()
-                } label: {
-                    Text("Rückmeldung senden")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color.red)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
+                Text(learner.debugDescription)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
             .padding()
-            .navigationTitle("Stimmt nicht")
+            .navigationTitle("Korrektur")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -381,14 +417,131 @@ struct FeedbackSheet: View {
         .presentationDetents([.medium])
     }
 
-    private let quickOptions = [
-        "Schranke zu früh rot",
-        "Schranke zu früh grün",
-        "Zug kam nicht",
-        "Zug kam später",
-        "Zug kam früher",
-        "Güterzug nicht erkannt",
-    ]
+    @ViewBuilder
+    private func feedbackButton(
+        title: String,
+        subtitle: String,
+        icon: String,
+        color: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            action()
+            onDone()
+            dismiss()
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundStyle(color)
+                Text(title)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(color.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+}
+
+// MARK: - Feedback History
+
+struct FeedbackHistoryView: View {
+    let learner: FeedbackLearner
+    @Environment(\.dismiss) private var dismiss
+
+    private let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .short
+        f.timeStyle = .short
+        f.locale = Locale(identifier: "de_DE")
+        return f
+    }()
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if learner.history.isEmpty {
+                    ContentUnavailableView(
+                        "Kein Feedback",
+                        systemImage: "list.bullet.clipboard",
+                        description: Text("Du hast noch kein Feedback gegeben.")
+                    )
+                } else {
+                    List {
+                        ForEach(learner.history) { entry in
+                            HStack(spacing: 12) {
+                                Image(systemName: entry.type.icon)
+                                    .foregroundStyle(color(for: entry.type))
+                                    .font(.title3)
+                                    .frame(width: 28)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(entry.type.label)
+                                        .font(.subheadline)
+                                    Text(dateFormatter.string(from: entry.date))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    if entry.type != .correct {
+                                        Text("\(Int(entry.stepUsed))s angepasst")
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                }
+
+                                Spacer()
+
+                                if entry.type != .correct {
+                                    Button {
+                                        learner.undo(entry: entry)
+                                    } label: {
+                                        Image(systemName: "arrow.uturn.backward.circle")
+                                            .foregroundStyle(.blue)
+                                            .font(.title3)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                }
+            }
+            .navigationTitle("Mein Feedback")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Fertig") { dismiss() }
+                }
+                if !learner.history.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Alles zurücksetzen", role: .destructive) {
+                            learner.resetLearning()
+                            dismiss()
+                        }
+                        .foregroundStyle(.red)
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func color(for type: FeedbackEntryType) -> Color {
+        switch type.color {
+        case "green":  .green
+        case "red":    .red
+        case "orange": .orange
+        default:       .secondary
+        }
+    }
 }
 
 // Einfaches FlowLayout für die Chips

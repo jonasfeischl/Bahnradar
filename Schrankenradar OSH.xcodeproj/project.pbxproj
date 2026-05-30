@@ -10,6 +10,7 @@
 		5DC402172FCB104F00425ED8 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DC402162FCB104F00425ED8 /* WidgetKit.framework */; };
 		5DC402192FCB105000425ED8 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DC402182FCB105000425ED8 /* SwiftUI.framework */; };
 		5DC402282FCB105200425ED8 /* SchrankenradarWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5DC402142FCB104F00425ED8 /* SchrankenradarWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		5DD694B32FCB44B700EE7327 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 5DD694B22FCB44B700EE7327 /* FirebaseFirestore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -74,6 +75,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5DD694B32FCB44B700EE7327 /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -139,6 +141,7 @@
 			);
 			name = "Schrankenradar OSH";
 			packageProductDependencies = (
+				5DD694B22FCB44B700EE7327 /* FirebaseFirestore */,
 			);
 			productName = "Schrankenradar OSH";
 			productReference = 5DC401C82FCAFD0000425ED8 /* Schrankenradar OSH.app */;
@@ -193,6 +196,9 @@
 			);
 			mainGroup = 5DC401BF2FCAFD0000425ED8;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				5DD694B12FCB44B700EE7327 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5DC401C92FCAFD0000425ED8 /* Products */;
 			projectDirPath = "";
@@ -378,7 +384,7 @@
 				DEVELOPMENT_TEAM = 93NKY3D6X7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Schrankenradar;
+				INFOPLIST_KEY_CFBundleDisplayName = Bahnradar;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Der Standort wird nur während der Fahrt geprüft um festzustellen ob du in der Nähe des Bahnübergangs bist.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Die App erkennt automatisch ob du fährst und aktiviert dann Sprachansagen.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -413,7 +419,7 @@
 				DEVELOPMENT_TEAM = 93NKY3D6X7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Schrankenradar;
+				INFOPLIST_KEY_CFBundleDisplayName = Bahnradar;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -527,6 +533,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		5DD694B12FCB44B700EE7327 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.14.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		5DD694B22FCB44B700EE7327 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5DD694B12FCB44B700EE7327 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 5DC401C02FCAFD0000425ED8 /* Project object */;
 }

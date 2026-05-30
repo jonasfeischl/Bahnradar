@@ -26,6 +26,8 @@ final class VoiceAnnouncer {
             parts.append("Achtung, Schranke schließt bald.")
         case .closed:
             parts.append("Schranke wahrscheinlich geschlossen.")
+        case .opening:
+            parts.append("Schranke öffnet gleich.")
         }
 
         if let event = nextEvent, event.minutesUntil > 0 {

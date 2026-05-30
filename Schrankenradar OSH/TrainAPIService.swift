@@ -186,8 +186,13 @@ struct TrainEntry: Identifiable {
               let pt = dp.pt,
               let planned = DateFormatter.dbTime.date(from: pt) else { return nil }
 
-        let lineRaw  = dp.line ?? stop.trainNumber ?? "S"
+        let lineRaw  = dp.line ?? stop.trainNumber ?? ""
         let lineName = lineRaw.hasPrefix("S") ? lineRaw : "S\(lineRaw)"
+
+        // Nur Linien zulassen die tatsächlich über den Bahnübergang Dachauer Str. fahren
+        let allowedLines: Set<String> = ["S1"]
+        guard allowedLines.contains(lineName) else { return nil }
+
         let actual   = stop.actualDepartureTime ?? planned
         let delay    = Int(actual.timeIntervalSince(planned) / 60)
 

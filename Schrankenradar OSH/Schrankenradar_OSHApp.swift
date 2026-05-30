@@ -6,12 +6,28 @@
 //
 
 import SwiftUI
+import FirebaseCore
 
 @main
 struct Schrankenradar_OSHApp: App {
+
+    init() {
+        FirebaseApp.configure()
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            TabView {
+                ContentView()
+                    .tabItem {
+                        Label("Radar", systemImage: "antenna.radiowaves.left.and.right")
+                    }
+
+                SchrankenModeView()
+                    .tabItem {
+                        Label("Schranke", systemImage: "record.circle")
+                    }
+            }
         }
     }
 }
