@@ -278,8 +278,9 @@ struct TrainEventRow: View {
             )
         } else if minutes < 1 {
             return AnyView(
-                Text(":\(String(format: "%02d", max(0, seconds)))")
-                    .font(.system(.title, design: .monospaced).bold())
+                Text("\(max(0, seconds))s")
+                    .font(.caption)
+                    .fontWeight(.medium)
                     .foregroundStyle(.red)
                     .contentTransition(.numericText())
             )
@@ -317,8 +318,17 @@ struct FeedbackSheet: View {
                     Text("Beschreibung (optional)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField("z.B. „Schranke war 2 min zu früh rot" oder „Zug kam nicht"",
-                              text: $note, axis: .vertical)
+                    TextEditor(text: $note)
+                        .frame(minHeight: 60)
+                        .overlay(alignment: .topLeading) {
+                            if note.isEmpty {
+                                Text("z.B. 'Schranke war 2 min zu fruh rot' oder 'Zug kam nicht'")
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 4)
+                                    .allowsHitTesting(false)
+                            }
+                        }
                         .lineLimit(3...6)
                         .padding(12)
                         .background(Color(.secondarySystemBackground))

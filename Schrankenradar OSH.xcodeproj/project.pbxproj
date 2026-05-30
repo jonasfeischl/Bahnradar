@@ -6,14 +6,65 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		5DC402172FCB104F00425ED8 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DC402162FCB104F00425ED8 /* WidgetKit.framework */; };
+		5DC402192FCB105000425ED8 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DC402182FCB105000425ED8 /* SwiftUI.framework */; };
+		5DC402282FCB105200425ED8 /* SchrankenradarWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5DC402142FCB104F00425ED8 /* SchrankenradarWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5DC402262FCB105200425ED8 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5DC401C02FCAFD0000425ED8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5DC402132FCB104F00425ED8;
+			remoteInfo = SchrankenradarWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		5DC4022D2FCB105200425ED8 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				5DC402282FCB105200425ED8 /* SchrankenradarWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		5DC401C82FCAFD0000425ED8 /* Schrankenradar OSH.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Schrankenradar OSH.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5DC402142FCB104F00425ED8 /* SchrankenradarWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SchrankenradarWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		5DC402162FCB104F00425ED8 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		5DC402182FCB105000425ED8 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		5DC402292FCB105200425ED8 /* Exceptions for "SchrankenradarWidget" folder in "SchrankenradarWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 5DC402132FCB104F00425ED8 /* SchrankenradarWidgetExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		5DC401CA2FCAFD0000425ED8 /* Schrankenradar OSH */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "Schrankenradar OSH";
+			sourceTree = "<group>";
+		};
+		5DC4021A2FCB105000425ED8 /* SchrankenradarWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				5DC402292FCB105200425ED8 /* Exceptions for "SchrankenradarWidget" folder in "SchrankenradarWidgetExtension" target */,
+			);
+			path = SchrankenradarWidget;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -26,6 +77,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5DC402112FCB104F00425ED8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5DC402192FCB105000425ED8 /* SwiftUI.framework in Frameworks */,
+				5DC402172FCB104F00425ED8 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -33,6 +93,8 @@
 			isa = PBXGroup;
 			children = (
 				5DC401CA2FCAFD0000425ED8 /* Schrankenradar OSH */,
+				5DC4021A2FCB105000425ED8 /* SchrankenradarWidget */,
+				5DC402152FCB104F00425ED8 /* Frameworks */,
 				5DC401C92FCAFD0000425ED8 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,8 +103,18 @@
 			isa = PBXGroup;
 			children = (
 				5DC401C82FCAFD0000425ED8 /* Schrankenradar OSH.app */,
+				5DC402142FCB104F00425ED8 /* SchrankenradarWidgetExtension.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		5DC402152FCB104F00425ED8 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				5DC402162FCB104F00425ED8 /* WidgetKit.framework */,
+				5DC402182FCB105000425ED8 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -55,10 +127,12 @@
 				5DC401C42FCAFD0000425ED8 /* Sources */,
 				5DC401C52FCAFD0000425ED8 /* Frameworks */,
 				5DC401C62FCAFD0000425ED8 /* Resources */,
+				5DC4022D2FCB105200425ED8 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				5DC402272FCB105200425ED8 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				5DC401CA2FCAFD0000425ED8 /* Schrankenradar OSH */,
@@ -69,6 +143,28 @@
 			productName = "Schrankenradar OSH";
 			productReference = 5DC401C82FCAFD0000425ED8 /* Schrankenradar OSH.app */;
 			productType = "com.apple.product-type.application";
+		};
+		5DC402132FCB104F00425ED8 /* SchrankenradarWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5DC4022A2FCB105200425ED8 /* Build configuration list for PBXNativeTarget "SchrankenradarWidgetExtension" */;
+			buildPhases = (
+				5DC402102FCB104F00425ED8 /* Sources */,
+				5DC402112FCB104F00425ED8 /* Frameworks */,
+				5DC402122FCB104F00425ED8 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5DC4021A2FCB105000425ED8 /* SchrankenradarWidget */,
+			);
+			name = SchrankenradarWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = SchrankenradarWidgetExtension;
+			productReference = 5DC402142FCB104F00425ED8 /* SchrankenradarWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -81,6 +177,9 @@
 				LastUpgradeCheck = 2650;
 				TargetAttributes = {
 					5DC401C72FCAFD0000425ED8 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					5DC402132FCB104F00425ED8 = {
 						CreatedOnToolsVersion = 26.5;
 					};
 				};
@@ -100,12 +199,20 @@
 			projectRoot = "";
 			targets = (
 				5DC401C72FCAFD0000425ED8 /* Schrankenradar OSH */,
+				5DC402132FCB104F00425ED8 /* SchrankenradarWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		5DC401C62FCAFD0000425ED8 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5DC402122FCB104F00425ED8 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +229,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5DC402102FCB104F00425ED8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5DC402272FCB105200425ED8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5DC402132FCB104F00425ED8 /* SchrankenradarWidgetExtension */;
+			targetProxy = 5DC402262FCB105200425ED8 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		5DC401D12FCAFD0100425ED8 /* Debug */ = {
@@ -256,6 +378,7 @@
 				DEVELOPMENT_TEAM = 93NKY3D6X7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Schrankenradar;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Der Standort wird nur während der Fahrt geprüft um festzustellen ob du in der Nähe des Bahnübergangs bist.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Die App erkennt automatisch ob du fährst und aktiviert dann Sprachansagen.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -290,6 +413,7 @@
 				DEVELOPMENT_TEAM = 93NKY3D6X7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Schrankenradar;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -305,6 +429,66 @@
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		5DC4022B2FCB105200425ED8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 93NKY3D6X7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SchrankenradarWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SchrankenradarWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.Jonas.Schrankenradar-OSH.SchrankenradarWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		5DC4022C2FCB105200425ED8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 93NKY3D6X7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SchrankenradarWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SchrankenradarWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.Jonas.Schrankenradar-OSH.SchrankenradarWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
@@ -329,6 +513,15 @@
 			buildConfigurations = (
 				5DC401D42FCAFD0100425ED8 /* Debug */,
 				5DC401D52FCAFD0100425ED8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5DC4022A2FCB105200425ED8 /* Build configuration list for PBXNativeTarget "SchrankenradarWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5DC4022B2FCB105200425ED8 /* Debug */,
+				5DC4022C2FCB105200425ED8 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

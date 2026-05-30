@@ -18,8 +18,8 @@ enum CrossingStatus: Equatable {
     var label: String {
         switch self {
         case .open: "Vermutlich offen"
-        case .warning: "Schließt wahrscheinlich bald"
-        case .closed: "Sehr wahrscheinlich geschlossen"
+        case .warning: "Schließt bald"
+        case .closed: "Wahrscheinlich geschlossen"
         }
     }
 

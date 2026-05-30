@@ -2,15 +2,15 @@ import WidgetKit
 import SwiftUI
 
 // MARK: - Timeline Entry
+// Was das Widget zu einem bestimmten Zeitpunkt anzeigt
 
 struct CrossingEntry: TimelineEntry {
     let date: Date
     let status: WidgetStatus
     let nextTrains: [WidgetTrain]
-    let offsetSeconds: Double
 }
 
-enum WidgetStatus: String, Codable {
+enum WidgetStatus: String {
     case open, warning, closed
 
     var color: Color {
@@ -29,14 +29,18 @@ enum WidgetStatus: String, Codable {
     }
 }
 
-struct WidgetTrain: Codable {
+struct WidgetTrain {
     let line: String
-    let direction: String  // "München" oder "Freising"
+    let direction: String
     let crossingTime: Date
-    var minutesUntil: Double { crossingTime.timeIntervalSinceNow / 60 }
+
+    var minutesUntil: Double {
+        crossingTime.timeIntervalSinceNow / 60
+    }
 }
 
-// MARK: - Provider
+// MARK: - Timeline Provider
+// Liefert Apple das nächste Widget-Update — maximal alle 5 Minuten (Apple-Limit)
 
 struct CrossingProvider: TimelineProvider {
     private let apiClientId = "647ab7f4b7e66f77ecb43a29c76e3b7b"
@@ -45,36 +49,41 @@ struct CrossingProvider: TimelineProvider {
     private let dbBase      = "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1"
     private let offsetSeconds: Double = 180
 
+    // Platzhalterdaten während das Widget lädt
     func placeholder(in context: Context) -> CrossingEntry {
-        CrossingEntry(date: .now, status: .open, nextTrains: placeholderTrains(), offsetSeconds: offsetSeconds)
+        CrossingEntry(date: .now, status: .open, nextTrains: [
+            WidgetTrain(line: "S1", direction: "München",  crossingTime: Date().addingTimeInterval(240)),
+            WidgetTrain(line: "S1", direction: "Freising", crossingTime: Date().addingTimeInterval(480)),
+        ])
     }
 
+    // Schnelle Vorschau (z.B. beim Hinzufügen zum Homescreen)
     func getSnapshot(in context: Context, completion: @escaping (CrossingEntry) -> Void) {
         if context.isPreview {
             completion(placeholder(in: context))
             return
         }
         Task {
-            let entry = await fetchEntry()
-            completion(entry)
+            completion(await fetchEntry())
         }
     }
 
+    // Wird regelmäßig aufgerufen — liefert den nächsten Refresh-Zeitpunkt
     func getTimeline(in context: Context, completion: @escaping (Timeline<CrossingEntry>) -> Void) {
         Task {
             let entry = await fetchEntry()
-            // Nächstes Update in 5 Minuten
-            let next = Calendar.current.date(byAdding: .minute, value: 5, to: .now)!
-            completion(Timeline(entries: [entry], policy: .after(next)))
+            let nextUpdate = Calendar.current.date(byAdding: .minute, value: 5, to: .now)!
+            completion(Timeline(entries: [entry], policy: .after(nextUpdate)))
         }
     }
 
+    // MARK: Daten laden
+
     private func fetchEntry() async -> CrossingEntry {
         guard let trains = try? await fetchTrains() else {
-            return CrossingEntry(date: .now, status: .open, nextTrains: [], offsetSeconds: offsetSeconds)
+            return CrossingEntry(date: .now, status: .open, nextTrains: [])
         }
-        let status = worstStatus(trains: trains)
-        return CrossingEntry(date: .now, status: status, nextTrains: Array(trains.prefix(3)), offsetSeconds: offsetSeconds)
+        return CrossingEntry(date: .now, status: worstStatus(trains), nextTrains: Array(trains.prefix(3)))
     }
 
     private func fetchTrains() async throws -> [WidgetTrain] {
@@ -85,17 +94,18 @@ struct CrossingProvider: TimelineProvider {
         let stops = (try await s1) + (try await s2)
 
         return stops.compactMap { stop -> WidgetTrain? in
-            guard let dp = stop["dp"] as? [String: String],
-                  let pt = dp["pt"],
-                  let planned = DateFormatter.dbTime.date(from: pt),
-                  let lineRaw = dp["line"] else { return nil }
-            let line = lineRaw.hasPrefix("S") ? lineRaw : "S\(lineRaw)"
-            let path = dp["path"] ?? ""
-            let dir  = isMunich(path) ? "München" : "Freising"
-            let offset = isMunich(path) ? offsetSeconds : -offsetSeconds
-            let crossingTime = planned.addingTimeInterval(offset)
-            guard crossingTime.timeIntervalSinceNow > -30 else { return nil }
-            return WidgetTrain(line: line, direction: dir, crossingTime: crossingTime)
+            guard let dp    = stop["dp"] as? [String: String],
+                  let pt    = dp["pt"],
+                  let date  = DateFormatter.dbTime.date(from: pt),
+                  let lineR = dp["line"] else { return nil }
+
+            let line   = lineR.hasPrefix("S") ? lineR : "S\(lineR)"
+            let path   = dp["path"] ?? ""
+            let south  = isMunich(path)
+            let offset = south ? offsetSeconds : -offsetSeconds
+            let crossing = date.addingTimeInterval(offset)
+            guard crossing.timeIntervalSinceNow > -30 else { return nil }
+            return WidgetTrain(line: line, direction: south ? "München" : "Freising", crossingTime: crossing)
         }
         .sorted { $0.crossingTime < $1.crossingTime }
     }
@@ -110,26 +120,18 @@ struct CrossingProvider: TimelineProvider {
     }
 
     private func isMunich(_ path: String) -> Bool {
-        let lower = path.lowercased()
-        return ["feldmoching","münchen","ostbahnhof","laim","pasing"].contains { lower.contains($0) }
+        ["feldmoching","münchen","ostbahnhof","laim","pasing"].contains { path.lowercased().contains($0) }
     }
 
-    private func worstStatus(trains: [WidgetTrain]) -> WidgetStatus {
+    private func worstStatus(_ trains: [WidgetTrain]) -> WidgetStatus {
         let upcoming = trains.filter { $0.minutesUntil > -0.5 && $0.minutesUntil < 5 }
-        if upcoming.contains(where: { $0.minutesUntil <= 1 })  { return .closed }
-        if upcoming.contains(where: { $0.minutesUntil <= 3 })  { return .warning }
+        if upcoming.contains(where: { $0.minutesUntil <= 1 }) { return .closed }
+        if upcoming.contains(where: { $0.minutesUntil <= 3 }) { return .warning }
         return .open
-    }
-
-    private func placeholderTrains() -> [WidgetTrain] {
-        [
-            WidgetTrain(line: "S1", direction: "München",  crossingTime: Date().addingTimeInterval(240)),
-            WidgetTrain(line: "S1", direction: "Freising", crossingTime: Date().addingTimeInterval(480)),
-        ]
     }
 }
 
-// MARK: - Widget Views
+// MARK: - Widget View
 
 struct SchrankenradarWidgetEntryView: View {
     var entry: CrossingEntry
@@ -137,19 +139,18 @@ struct SchrankenradarWidgetEntryView: View {
 
     var body: some View {
         switch family {
-        case .systemSmall:  smallView
-        default:            mediumView
+        case .systemSmall: smallView
+        default:           mediumView
         }
     }
 
-    // Kleine Version: nur Ampel + Status
+    // Klein: Ampel + Status + nächster Zug
     private var smallView: some View {
         VStack(spacing: 8) {
             MiniTrafficLight(status: entry.status)
             Text(entry.status.label)
-                .font(.caption2).bold()
+                .font(.caption).bold()
                 .foregroundStyle(entry.status.color)
-                .multilineTextAlignment(.center)
             if let first = entry.nextTrains.first {
                 Text(timeText(first))
                     .font(.caption2)
@@ -160,27 +161,29 @@ struct SchrankenradarWidgetEntryView: View {
         .containerBackground(.fill.tertiary, for: .widget)
     }
 
-    // Mittlere Version: Ampel links, Züge rechts
+    // Mittel: Ampel links | Züge rechts
     private var mediumView: some View {
         HStack(spacing: 16) {
-            // Linke Seite: Ampel
+
+            // --- Linke Seite: Ampel ---
             VStack(spacing: 6) {
                 MiniTrafficLight(status: entry.status)
                 Text(entry.status.label)
-                    .font(.caption2).bold()
+                    .font(.caption).bold()
                     .foregroundStyle(entry.status.color)
                     .multilineTextAlignment(.center)
-                    .frame(width: 80)
+                    .frame(width: 75)
             }
 
             Divider()
 
-            // Rechte Seite: Züge
-            VStack(alignment: .leading, spacing: 6) {
+            // --- Rechte Seite: Züge ---
+            VStack(alignment: .leading, spacing: 7) {
                 Text("Nächste Züge")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                ForEach(entry.nextTrains.prefix(3), id: \.crossingTime) { train in
+
+                ForEach(Array(entry.nextTrains.enumerated()), id: \.offset) { _, train in
                     HStack {
                         Text(train.line)
                             .font(.caption).bold()
@@ -190,12 +193,13 @@ struct SchrankenradarWidgetEntryView: View {
                         Spacer()
                         Text(timeText(train))
                             .font(.caption).bold()
-                            .foregroundStyle(statusColor(train))
+                            .foregroundStyle(minuteColor(train.minutesUntil))
                     }
                 }
+
                 if entry.nextTrains.isEmpty {
-                    Text("Keine Züge")
-                        .font(.caption)
+                    Text("Keine Züge in 90 min")
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -207,13 +211,12 @@ struct SchrankenradarWidgetEntryView: View {
 
     private func timeText(_ train: WidgetTrain) -> String {
         let m = train.minutesUntil
-        if m < 0    { return "passiert" }
-        if m < 1    { return ":\(String(format: "%02d", Int(m * 60)))s" }
+        if m < 0   { return "passiert" }
+        if m < 1   { return "< 1 min" }
         return "in \(Int(m)) min"
     }
 
-    private func statusColor(_ train: WidgetTrain) -> Color {
-        let m = train.minutesUntil
+    private func minuteColor(_ m: Double) -> Color {
         if m < 1 { return .red }
         if m < 3 { return .orange }
         return .secondary
@@ -226,25 +229,24 @@ struct MiniTrafficLight: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            circle(color: .red,    active: status == .closed)
-            circle(color: .yellow, active: status == .warning)
-            circle(color: .green,  active: status == .open)
+            dot(.red,    active: status == .closed)
+            dot(.yellow, active: status == .warning)
+            dot(.green,  active: status == .open)
         }
         .padding(8)
         .background(Color(.systemGray5))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
-    private func circle(color: Color, active: Bool) -> some View {
+    private func dot(_ color: Color, active: Bool) -> some View {
         Circle()
             .fill(active ? color : color.opacity(0.15))
             .frame(width: 22, height: 22)
     }
 }
 
-// MARK: - Widget Definition
+// MARK: - Widget Registrierung
 
-@main
 struct SchrankenradarWidget: Widget {
     let kind = "SchrankenradarWidget"
 
@@ -258,7 +260,7 @@ struct SchrankenradarWidget: Widget {
     }
 }
 
-// MARK: - Minimal XML Parser für Widget
+// MARK: - Minimaler XML Parser (eigenständig für Widget-Target)
 
 final class WidgetXMLParser: NSObject, XMLParserDelegate {
     private var stops: [[String: Any]] = []
@@ -276,8 +278,8 @@ final class WidgetXMLParser: NSObject, XMLParserDelegate {
         switch el {
         case "s":  current = ["id": a["id"] ?? ""]
         case "dp": current?["dp"] = ["pt": a["pt"] ?? "", "line": a["l"] ?? "", "path": a["ppth"] ?? ""]
-        case "tl": current?["trainNumber"] = a["n"] ?? ""
-        default: break
+        case "tl": if current?["dp"] == nil { current?["trainNumber"] = a["n"] ?? "" }
+        default:   break
         }
     }
 
@@ -306,4 +308,15 @@ extension DateFormatter {
         let f = DateFormatter(); f.dateFormat = "yyMMddHHmm"
         f.locale = Locale(identifier: "de_DE"); return f
     }()
+}
+
+// MARK: - Preview
+
+#Preview(as: .systemMedium) {
+    SchrankenradarWidget()
+} timeline: {
+    CrossingEntry(date: .now, status: .warning, nextTrains: [
+        WidgetTrain(line: "S1", direction: "München",  crossingTime: Date().addingTimeInterval(120)),
+        WidgetTrain(line: "S1", direction: "Freising", crossingTime: Date().addingTimeInterval(360)),
+    ])
 }
