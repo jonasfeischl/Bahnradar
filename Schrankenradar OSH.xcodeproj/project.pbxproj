@@ -256,6 +256,8 @@
 				DEVELOPMENT_TEAM = 93NKY3D6X7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Der Standort wird nur während der Fahrt geprüft um festzustellen ob du in der Nähe des Bahnübergangs bist.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Die App erkennt automatisch ob du fährst und aktiviert dann Sprachansagen.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
