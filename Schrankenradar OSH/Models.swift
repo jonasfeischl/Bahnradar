@@ -6,7 +6,16 @@ enum CrossingStatus: Equatable {
     case open
     case warning
     case closed
-    case opening  // Zug gerade durchgefahren, Schranke öffnet gleich
+    case opening
+
+    var rawString: String {
+        switch self {
+        case .open:    "open"
+        case .warning: "warning"
+        case .closed:  "closed"
+        case .opening: "opening"
+        }
+    }
 
     var color: Color {
         switch self {
@@ -79,16 +88,22 @@ struct CrossingEvent: Identifiable {
     /// Wie lange die Schranke nach Zugdurchfahrt geschlossen bleibt (in Minuten)
     let openingDelayMinutes: Double
 
-    var minutesUntil: Double {
-        estimatedCrossingTime.timeIntervalSinceNow / 60
+    func minutesUntil(from date: Date) -> Double {
+        estimatedCrossingTime.timeIntervalSince(date) / 60
     }
 
-    var status: CrossingStatus {
-        let minutes = minutesUntil
-        if minutes > 3              { return .open }
-        if minutes > 1              { return .warning }
-        if minutes > -openingDelayMinutes { return .closed }
-        if minutes > -openingDelayMinutes - 0.25 { return .opening }  // Zug durch, öffnet gerade (~15s)
+    func status(at date: Date) -> CrossingStatus {
+        let minutes = minutesUntil(from: date)
+        // Schranke schließt ~30s (0.5 min) vor Zugdurchfahrt
+        // Schranke öffnet ~10s nach Zugdurchfahrt (= openingDelayMinutes ≈ 0.17 min)
+        if minutes > 3                           { return .open }      // weit weg, alles frei
+        if minutes > 1                           { return .warning }   // schließt in < 2 Min
+        if minutes > -openingDelayMinutes        { return .closed }    // geschlossen
+        if minutes > -openingDelayMinutes - 0.17 { return .opening }   // öffnet gerade
         return .open
     }
+
+    // Kompatibilität für Code der kein explizites Datum braucht
+    var minutesUntil: Double { minutesUntil(from: Date()) }
+    var status: CrossingStatus { status(at: Date()) }
 }

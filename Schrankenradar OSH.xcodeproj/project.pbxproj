@@ -44,6 +44,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		5D3ED1AA2FCC99EC00F9F6EA /* Exceptions for "Schrankenradar OSH" folder in "SchrankenradarWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				CrossingActivityAttributes.swift,
+			);
+			target = 5DC402132FCB104F00425ED8 /* SchrankenradarWidgetExtension */;
+		};
 		5DC402292FCB105200425ED8 /* Exceptions for "SchrankenradarWidget" folder in "SchrankenradarWidgetExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -56,6 +63,9 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		5DC401CA2FCAFD0000425ED8 /* Schrankenradar OSH */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				5D3ED1AA2FCC99EC00F9F6EA /* Exceptions for "Schrankenradar OSH" folder in "SchrankenradarWidgetExtension" target */,
+			);
 			path = "Schrankenradar OSH";
 			sourceTree = "<group>";
 		};
@@ -383,6 +393,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Bahnradar;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Der Standort wird nur während der Fahrt geprüft um festzustellen ob du in der Nähe des Bahnübergangs bist.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Die App erkennt automatisch ob du fährst und aktiviert dann Sprachansagen.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -416,6 +428,10 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Bahnradar;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Der Standort wird nur während der Fahrt geprüft um festzustellen ob du in der Nähe des Bahnübergangs bist.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Die App erkennt automatisch ob du fährst und aktiviert dann Sprachansagen.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

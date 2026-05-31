@@ -2,7 +2,6 @@ import WidgetKit
 import SwiftUI
 
 // MARK: - Timeline Entry
-// Was das Widget zu einem bestimmten Zeitpunkt anzeigt
 
 struct CrossingEntry: TimelineEntry {
     let date: Date
@@ -11,13 +10,14 @@ struct CrossingEntry: TimelineEntry {
 }
 
 enum WidgetStatus: String {
-    case open, warning, closed, unknown
+    case open, warning, closed, opening, unknown
 
     var color: Color {
         switch self {
         case .open:    .green
         case .warning: .yellow
         case .closed:  .red
+        case .opening: .yellow
         case .unknown: .gray
         }
     }
@@ -26,6 +26,7 @@ enum WidgetStatus: String {
         case .open:    "Offen"
         case .warning: "Schließt bald"
         case .closed:  "Geschlossen"
+        case .opening: "Öffnet gleich"
         case .unknown: "Lädt…"
         }
     }
@@ -36,22 +37,21 @@ struct WidgetTrain {
     let direction: String
     let crossingTime: Date
 
-    var minutesUntil: Double {
-        crossingTime.timeIntervalSinceNow / 60
+    func minutesUntil(from date: Date) -> Double {
+        crossingTime.timeIntervalSince(date) / 60
     }
 }
 
 // MARK: - Timeline Provider
-// Liefert Apple das nächste Widget-Update — maximal alle 5 Minuten (Apple-Limit)
 
 struct CrossingProvider: TimelineProvider {
-    private let apiClientId = "7f8ece2b4a0824111555b04ab77a3290"
-    private let apiKey      = "b18663ed16ca9f92290b60aa774f3baa"
-    private let stationEVA  = "8004158"
-    private let dbBase      = "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1"
+    private let apiClientId  = "bb2d56302fc6faac8ac204a28a58beda"
+    private let apiKey       = "e77347cdd2f22d6f600a4df38271f4af"
+    private let stationEVA   = "8004158"
+    private let dbBase       = "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1"
     private let offsetSeconds: Double = 180
+    private let openingDelay: Double  = 120  // Sekunden bis Schranke nach Zug öffnet
 
-    // Platzhalterdaten während das Widget lädt
     func placeholder(in context: Context) -> CrossingEntry {
         CrossingEntry(date: .now, status: .open, nextTrains: [
             WidgetTrain(line: "S1", direction: "München",  crossingTime: Date().addingTimeInterval(240)),
@@ -59,39 +59,70 @@ struct CrossingProvider: TimelineProvider {
         ])
     }
 
-    // Schnelle Vorschau (z.B. beim Hinzufügen zum Homescreen)
     func getSnapshot(in context: Context, completion: @escaping (CrossingEntry) -> Void) {
-        if context.isPreview {
-            completion(placeholder(in: context))
-            return
-        }
+        if context.isPreview { completion(placeholder(in: context)); return }
         Task {
-            completion(await fetchEntry())
+            let trains = (try? await fetchTrains()) ?? []
+            completion(CrossingEntry(date: .now, status: worstStatus(trains, at: .now), nextTrains: Array(trains.prefix(3))))
         }
     }
 
-    // Wird regelmäßig aufgerufen — liefert den nächsten Refresh-Zeitpunkt
     func getTimeline(in context: Context, completion: @escaping (Timeline<CrossingEntry>) -> Void) {
         Task {
-            let entry = await fetchEntry()
-            // Bei Fehler schneller neu versuchen (1 min), sonst alle 2 min
-            let minutes = entry.status == .unknown ? 1 : 2
-            let nextUpdate = Calendar.current.date(byAdding: .minute, value: minutes, to: .now)!
-            completion(Timeline(entries: [entry], policy: .after(nextUpdate)))
+            do {
+                let trains = try await fetchTrains()
+                // Viele Einträge vorausberechnen → Widget updated sich ohne neue API-Calls
+                let entries = buildTimeline(trains: trains)
+                // Nach 5 Minuten neue Daten laden
+                let nextFetch = Date().addingTimeInterval(5 * 60)
+                completion(Timeline(entries: entries, policy: .after(nextFetch)))
+            } catch {
+                let entry = CrossingEntry(date: .now, status: .unknown, nextTrains: [])
+                let retry = Date().addingTimeInterval(60)
+                completion(Timeline(entries: [entry], policy: .after(retry)))
+            }
         }
+    }
+
+    // Berechnet Einträge für jeden relevanten Zeitpunkt in den nächsten 90 Minuten
+    private func buildTimeline(trains: [WidgetTrain]) -> [CrossingEntry] {
+        var entries: [CrossingEntry] = []
+        var checkDates = Set<Date>()
+
+        // Basisintervall: alle 30 Sekunden
+        var t = Date()
+        let end = t.addingTimeInterval(90 * 60)
+        while t < end {
+            checkDates.insert(t)
+            t = t.addingTimeInterval(30)
+        }
+
+        // Zusätzlich: Statuswechsel-Zeitpunkte für jeden Zug exakt treffen
+        for train in trains {
+            let crossing = train.crossingTime
+            checkDates.insert(crossing.addingTimeInterval(-3 * 60))  // warning start
+            checkDates.insert(crossing.addingTimeInterval(-60))       // closed start
+            checkDates.insert(crossing)                               // crossing
+            checkDates.insert(crossing.addingTimeInterval(openingDelay)) // opening
+            checkDates.insert(crossing.addingTimeInterval(openingDelay + 15)) // open again
+        }
+
+        let now = Date()
+        for date in checkDates.sorted() {
+            guard date >= now else { continue }
+            let status = worstStatus(trains, at: date)
+            let visible = trains.filter { $0.minutesUntil(from: date) > -2 && $0.minutesUntil(from: date) < 90 }
+            entries.append(CrossingEntry(date: date, status: status, nextTrains: Array(visible.prefix(3))))
+        }
+
+        if entries.isEmpty {
+            entries.append(CrossingEntry(date: .now, status: .open, nextTrains: []))
+        }
+
+        return entries
     }
 
     // MARK: Daten laden
-
-    private func fetchEntry() async -> CrossingEntry {
-        do {
-            let trains = try await fetchTrains()
-            return CrossingEntry(date: .now, status: worstStatus(trains), nextTrains: Array(trains.prefix(3)))
-        } catch {
-            // Bei Fehler: in 1 Minute nochmal versuchen, nicht einfach grün zeigen
-            return CrossingEntry(date: .now, status: .unknown, nextTrains: [])
-        }
-    }
 
     private func fetchTrains() async throws -> [WidgetTrain] {
         let now  = Date()
@@ -100,21 +131,39 @@ struct CrossingProvider: TimelineProvider {
         async let s2 = fetchStops(for: next)
         let stops = (try await s1) + (try await s2)
 
-        return stops.compactMap { stop -> WidgetTrain? in
-            guard let dp    = stop["dp"] as? [String: String],
-                  let pt    = dp["pt"],
-                  let date  = DateFormatter.dbTime.date(from: pt),
-                  let lineR = dp["line"] else { return nil }
+        var seen = Set<String>()
+        return stops
+            .filter { seen.insert(($0["id"] as? String) ?? UUID().uuidString).inserted }
+            .compactMap { stop -> WidgetTrain? in
+                guard let dp   = stop["dp"] as? [String: String],
+                      let pt   = dp["pt"],
+                      let date = DateFormatter.dbTime.date(from: pt) else { return nil }
 
-            let line   = lineR.hasPrefix("S") ? lineR : "S\(lineR)"
-            let path   = dp["path"] ?? ""
-            let south  = isMunich(path)
-            let offset = south ? offsetSeconds : -offsetSeconds
-            let crossing = date.addingTimeInterval(offset)
-            guard crossing.timeIntervalSinceNow > -30 else { return nil }
-            return WidgetTrain(line: line, direction: south ? "München" : "Freising", crossingTime: crossing)
-        }
-        .sorted { $0.crossingTime < $1.crossingTime }
+                let lineR    = dp["line"] ?? ""
+                let category = stop["category"] as? String ?? ""
+
+                // RB, RE, IC fahren nicht durch Oberschleißheim → rausfiltern
+                // Prüfen über Linienname UND Kategorie (tl-Element)
+                let isBlocked = ["RB", "RE", "IC", "EC", "ICE"].contains(where: {
+                    lineR.hasPrefix($0) || category.hasPrefix($0)
+                })
+                guard !isBlocked else { return nil }
+
+                // Leere Linie ohne S-Bahn-Kategorie → überspringen
+                guard !lineR.isEmpty || category == "S" else { return nil }
+
+                let line     = lineR == "1" ? "S1" : (lineR.hasPrefix("S") ? lineR : "S\(lineR)")
+                let depPath  = dp["path"] ?? ""
+                let arrPath  = (stop["ar"] as? [String: String])?["path"] ?? ""
+                let toMunich = isMunich(departurePath: depPath, arrivalPath: arrPath)
+                let offset   = toMunich ? offsetSeconds : -offsetSeconds
+                let crossing = date.addingTimeInterval(offset)
+                let keepUntil = crossing.addingTimeInterval(openingDelay + 60)
+                guard keepUntil > now else { return nil }
+
+                return WidgetTrain(line: line, direction: toMunich ? "München" : "Freising", crossingTime: crossing)
+            }
+            .sorted { $0.crossingTime < $1.crossingTime }
     }
 
     private func fetchStops(for date: Date) async throws -> [[String: Any]] {
@@ -122,23 +171,53 @@ struct CrossingProvider: TimelineProvider {
         var req = URLRequest(url: url)
         req.setValue(apiClientId, forHTTPHeaderField: "DB-Client-Id")
         req.setValue(apiKey,      forHTTPHeaderField: "DB-Api-Key")
-        let (data, _) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
         return WidgetXMLParser.parse(data: data)
     }
 
-    private func isMunich(_ path: String) -> Bool {
-        let stops = path.lowercased().components(separatedBy: "|")
-        let oshIndex = stops.firstIndex(where: { $0.contains("oberschlei") }) ?? -1
-        let futureStops = oshIndex >= 0 ? Array(stops[(oshIndex + 1)...]) : stops
-        let freisungKW = ["freising", "flughafen", "neufahrn", "pulling", "eching", "lohhof", "unterschlei"]
-        if futureStops.contains(where: { s in freisungKW.contains { s.contains($0) } }) { return false }
-        return true
+    private func isMunich(departurePath: String, arrivalPath: String = "") -> Bool {
+        let freisungKW = ["freising", "flughafen", "neufahrn", "pulling", "eching",
+                          "lohhof", "unterschlei", "hallbergmoos"]
+        let munichKW   = ["feldmoching", "münchen", "ostbahnhof", "laim", "pasing",
+                          "moosach", "petershausen", "dachau", "karlsfeld"]
+
+        let dep = departurePath.lowercased().components(separatedBy: "|")
+        if dep.contains(where: { s in freisungKW.contains { s.contains($0) } }) { return false }
+        if dep.contains(where: { s in munichKW.contains   { s.contains($0) } }) { return true }
+
+        if !arrivalPath.isEmpty {
+            let arr = arrivalPath.lowercased().components(separatedBy: "|")
+            if arr.contains(where: { s in munichKW.contains   { s.contains($0) } }) { return false }
+            if arr.contains(where: { s in freisungKW.contains { s.contains($0) } }) { return true }
+        }
+
+        return true  // Fallback München
     }
 
-    private func worstStatus(_ trains: [WidgetTrain]) -> WidgetStatus {
-        let upcoming = trains.filter { $0.minutesUntil > -0.5 && $0.minutesUntil < 5 }
-        if upcoming.contains(where: { $0.minutesUntil <= 1 }) { return .closed }
-        if upcoming.contains(where: { $0.minutesUntil <= 3 }) { return .warning }
+    private func worstStatus(_ trains: [WidgetTrain], at date: Date) -> WidgetStatus {
+        let upcoming = trains.filter {
+            let m = $0.minutesUntil(from: date)
+            return m < 5
+        }
+
+        let hasClosed  = upcoming.contains(where: {
+            let m = $0.minutesUntil(from: date)
+            return m <= 1 && m > -(openingDelay / 60)
+        })
+        let hasWarning = upcoming.contains(where: {
+            let m = $0.minutesUntil(from: date)
+            return m > 1 && m <= 3
+        })
+        let hasOpening = upcoming.contains(where: {
+            let m = $0.minutesUntil(from: date)
+            return m > -(openingDelay / 60) && m <= -(openingDelay / 60) + 0.25
+        })
+
+        if hasClosed && hasWarning { return .closed }
+        if hasClosed               { return .closed }
+        if hasOpening              { return .opening }
+        if hasWarning              { return .warning }
         return .open
     }
 }
@@ -156,7 +235,6 @@ struct SchrankenradarWidgetEntryView: View {
         }
     }
 
-    // Klein: Ampel + Status + nächster Zug
     private var smallView: some View {
         VStack(spacing: 8) {
             MiniTrafficLight(status: entry.status)
@@ -164,7 +242,7 @@ struct SchrankenradarWidgetEntryView: View {
                 .font(.caption).bold()
                 .foregroundStyle(entry.status.color)
             if let first = entry.nextTrains.first {
-                Text(timeText(first))
+                Text(timeText(first, from: entry.date))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -173,11 +251,8 @@ struct SchrankenradarWidgetEntryView: View {
         .containerBackground(.fill.tertiary, for: .widget)
     }
 
-    // Mittel: Ampel links | Züge rechts
     private var mediumView: some View {
         HStack(spacing: 16) {
-
-            // --- Linke Seite: Ampel ---
             VStack(spacing: 6) {
                 MiniTrafficLight(status: entry.status)
                 Text(entry.status.label)
@@ -189,7 +264,6 @@ struct SchrankenradarWidgetEntryView: View {
 
             Divider()
 
-            // --- Rechte Seite: Züge ---
             VStack(alignment: .leading, spacing: 7) {
                 Text("Nächste Züge")
                     .font(.caption2)
@@ -203,9 +277,9 @@ struct SchrankenradarWidgetEntryView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Text(timeText(train))
+                        Text(timeText(train, from: entry.date))
                             .font(.caption).bold()
-                            .foregroundStyle(minuteColor(train.minutesUntil))
+                            .foregroundStyle(minuteColor(train.minutesUntil(from: entry.date)))
                     }
                 }
 
@@ -221,9 +295,10 @@ struct SchrankenradarWidgetEntryView: View {
         .containerBackground(.fill.tertiary, for: .widget)
     }
 
-    private func timeText(_ train: WidgetTrain) -> String {
-        let m = train.minutesUntil
-        if m < 0   { return "passiert" }
+    private func timeText(_ train: WidgetTrain, from date: Date) -> String {
+        let m = train.minutesUntil(from: date)
+        if m < -1  { return "passiert" }
+        if m < 0   { return "öffnet gleich" }
         if m < 1   { return "< 1 min" }
         return "in \(Int(m)) min"
     }
@@ -235,14 +310,15 @@ struct SchrankenradarWidgetEntryView: View {
     }
 }
 
-// Kleine Ampel: drei Kreise übereinander
+// MARK: - Mini Ampel
+
 struct MiniTrafficLight: View {
     let status: WidgetStatus
 
     var body: some View {
         VStack(spacing: 4) {
             dot(.red,    active: status == .closed)
-            dot(.yellow, active: status == .warning)
+            dot(.yellow, active: status == .warning || status == .opening)
             dot(.green,  active: status == .open)
         }
         .padding(8)
@@ -272,7 +348,7 @@ struct SchrankenradarWidget: Widget {
     }
 }
 
-// MARK: - Minimaler XML Parser (eigenständig für Widget-Target)
+// MARK: - XML Parser
 
 final class WidgetXMLParser: NSObject, XMLParserDelegate {
     private var stops: [[String: Any]] = []
@@ -290,7 +366,9 @@ final class WidgetXMLParser: NSObject, XMLParserDelegate {
         switch el {
         case "s":  current = ["id": a["id"] ?? ""]
         case "dp": current?["dp"] = ["pt": a["pt"] ?? "", "line": a["l"] ?? "", "path": a["ppth"] ?? ""]
-        case "tl": if current?["dp"] == nil { current?["trainNumber"] = a["n"] ?? "" }
+        case "ar": current?["ar"] = ["path": a["ppth"] ?? ""]
+        case "tl": current?["category"] = a["c"] ?? ""   // z.B. "RB", "RE", "S"
+                   current?["trainNumber"] = a["n"] ?? ""
         default:   break
         }
     }

@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct ContentView: View {
     var viewModel: CrossingViewModel
@@ -10,64 +11,70 @@ struct ContentView: View {
     @State private var showFeedbackSheet  = false
     @State private var showFeedbackHistory = false
     @AppStorage("voiceEnabled") private var voiceEnabled: Bool = true
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var now: Date = Date()
 
     private var voiceActive: Bool {
         voiceEnabled && drivingDetector.isDriving && locationMonitor.isNearCrossing
     }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { _ in
-            NavigationStack {
-                ScrollView {
-                    VStack(spacing: 24) {
-                        statusHeader
-                        trafficLight
-                        statusLabel
-                        voiceBadge
-                        if viewModel.isLoading && viewModel.nextEvents.isEmpty {
-                            ProgressView("Lade Zugdaten...")
-                        }
-                        if let error = viewModel.errorMessage {
-                            errorBanner(error)
-                        }
-                        upcomingTrainsList
-                        feedbackButtons
-                        disclaimer
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    statusHeader
+                    TrafficLightView(status: viewModel.worstStatus(at: now))
+                    statusLabel
+                    voiceBadge
+                    if viewModel.isLoading && viewModel.nextEvents.isEmpty {
+                        ProgressView("Lade Zugdaten...")
                     }
-                    .padding()
+                    if let error = viewModel.errorMessage {
+                        errorBanner(error)
+                    }
+                    upcomingTrainsList
+                    feedbackButtons
+                    disclaimer
                 }
-                .navigationTitle("Schrankenradar OSH")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            withAnimation(.linear(duration: 0.6)) {
-                                rotationAngle += 360
-                            }
-                            Task { await viewModel.fetchData() }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .rotationEffect(.degrees(rotationAngle))
-                        }
-                        .disabled(viewModel.isLoading)
+                .padding()
+            }
+            .navigationTitle("Schrankenradar OSH")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        withAnimation(.linear(duration: 0.6)) { rotationAngle += 360 }
+                        Task { await viewModel.fetchData() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .rotationEffect(.degrees(rotationAngle))
                     }
+                    .disabled(viewModel.isLoading)
                 }
             }
+        }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { date in
+            now = date
         }
         .task {
             viewModel.startAutoRefresh()
             drivingDetector.start()
+        }
+        .onChange(of: scenePhase) { oldPhase, phase in
+            if phase == .active && oldPhase == .background {
+                viewModel.startAutoRefresh()
+            } else if phase == .background {
+                viewModel.stopAutoRefresh()
+            }
         }
         .onDisappear {
             viewModel.stopAutoRefresh()
             drivingDetector.stop()
             locationMonitor.stop()
         }
-        // Standort nur aktivieren wenn gefahren wird
         .onChange(of: drivingDetector.isDriving) { _, driving in
             if driving { locationMonitor.start() } else { locationMonitor.stop() }
         }
-        // Bei jedem Ampelwechsel Voice-Callout (nur wenn aktiv)
         .onChange(of: viewModel.worstUpcomingStatus) { _, newStatus in
             guard voiceActive, newStatus != lastSpokenStatus else { return }
             lastSpokenStatus = newStatus
@@ -90,12 +97,8 @@ struct ContentView: View {
         }
     }
 
-    private var trafficLight: some View {
-        TrafficLightView(status: viewModel.worstUpcomingStatus)
-    }
-
     private var statusLabel: some View {
-        let status = viewModel.worstUpcomingStatus
+        let status = viewModel.worstStatus(at: now)
         return HStack(spacing: 8) {
             Image(systemName: status.systemImage)
                 .foregroundStyle(status.color)
@@ -137,7 +140,7 @@ struct ContentView: View {
                     .font(.subheadline)
             } else {
                 ForEach(viewModel.nextEvents.prefix(8)) { event in
-                    TrainEventRow(event: event)
+                    TrainEventRow(event: event, now: now)
                 }
             }
         }
@@ -257,11 +260,12 @@ struct ContentView: View {
 
 struct TrainEventRow: View {
     let event: CrossingEvent
+    let now: Date
 
     var body: some View {
         HStack {
             Circle()
-                .fill(event.status.color)
+                .fill(event.status(at: now).color)
                 .frame(width: 12, height: 12)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -273,10 +277,15 @@ struct TrainEventRow: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                if event.train.delayMinutes > 0 {
-                    Text("+\(event.train.delayMinutes) min Verspätung")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                HStack(spacing: 4) {
+                    Text("Abfahrt \(event.train.actualTime, style: .time)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    if event.train.delayMinutes > 0 {
+                        Text("+\(event.train.delayMinutes) min")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
                 }
             }
 
@@ -293,7 +302,7 @@ struct TrainEventRow: View {
     }
 
     private var timeUntilLabel: some View {
-        let minutes = event.minutesUntil
+        let minutes = event.minutesUntil(from: now)
         let seconds = Int(minutes * 60)
 
         if minutes < -0.5 {
