@@ -139,7 +139,7 @@ final class CrossingViewModel {
 
         if let activity = liveActivity {
             // Bestehende Activity updaten
-            Task { await activity.update(.init(state: state)) }
+            Task { await activity.update(ActivityContent(state: state, staleDate: crossing.addingTimeInterval(120))) }
         } else {
             // Neue Activity starten
             let attributes = CrossingActivityAttributes(crossingName: "Bahnübergang Dachauer Str.")
