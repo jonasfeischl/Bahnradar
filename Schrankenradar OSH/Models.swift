@@ -88,7 +88,7 @@ struct CrossingEvent: Identifiable {
         if minutes > 3              { return .open }
         if minutes > 1              { return .warning }
         if minutes > -openingDelayMinutes { return .closed }
-        if minutes > -openingDelayMinutes - 1.5 { return .opening }  // Zug durch, öffnet gerade
+        if minutes > -openingDelayMinutes - 0.25 { return .opening }  // Zug durch, öffnet gerade (~15s)
         return .open
     }
 }

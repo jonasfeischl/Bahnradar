@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import FirebaseFirestore
 
 // MARK: - Konstanten
 
@@ -99,6 +98,10 @@ final class FeedbackLearner {
     var stepSeconds: Double
 
     var lastFeedbackMessage: String? = nil
+    private(set) var isCloudConnected: Bool = false
+    private let jsonBin = JSONBinService()
+    private var closingVotesCache: [Double] = []
+    private var openingVotesCache: [Double] = []
     private(set) var history: [FeedbackEntry] = []
 
     init() {
@@ -108,7 +111,7 @@ final class FeedbackLearner {
         let stored = UserDefaults.standard.double(forKey: keyStepSeconds)
         stepSeconds = stored > 0 ? stored : defaultStepSeconds
         history = Self.loadHistory()
-        loadFromFirebase()
+        Task { await loadFromJSONBin() }
     }
 
     // MARK: Öffentliche API
@@ -118,7 +121,7 @@ final class FeedbackLearner {
     }
 
     var totalOpeningDelay: Double {
-        30 + openingDelayAdjustment
+        10 + openingDelayAdjustment   // Basis: 10 Sekunden Nachhaltzeit
     }
 
     // MARK: Feedback
@@ -174,10 +177,10 @@ final class FeedbackLearner {
         let delta = entry.type.sign * entry.stepUsed
         if entry.type.affectsClosing {
             closingOffsetAdjustment = (closingOffsetAdjustment - delta).clamped(to: minClosing...maxClosing)
-            removeVoteFromFirebase(closing: delta, opening: nil)
+            removeVoteFromFirebasePublic(closing: delta, opening: nil)
         } else if entry.type != .correct {
             openingDelayAdjustment = (openingDelayAdjustment - delta).clamped(to: minOpening...maxOpening)
-            removeVoteFromFirebase(closing: nil, opening: delta)
+            removeVoteFromFirebasePublic(closing: nil, opening: delta)
         }
 
         if entry.type != .correct { feedbackCount = max(0, feedbackCount - 1) }
@@ -187,6 +190,7 @@ final class FeedbackLearner {
         showMessage("Rückgängig gemacht – auch aus Firebase entfernt.")
     }
 
+    /// Alles zurücksetzen inkl. Cloud (für kompletten Reset)
     func resetLearning() {
         closingOffsetAdjustment = 0
         openingDelayAdjustment  = 0
@@ -196,6 +200,51 @@ final class FeedbackLearner {
         saveHistory()
         resetFirebase()
         showMessage("Lerndaten zurückgesetzt.")
+    }
+
+    /// Nur lokale Daten löschen — Cloud bleibt erhalten
+    func resetLocalLearning() {
+        closingOffsetAdjustment = 0
+        openingDelayAdjustment  = 0
+        feedbackCount           = 0
+        history.removeAll()
+        persistLocal()
+        saveHistory()
+        showMessage("Deine Lerndaten wurden gelöscht.")
+    }
+
+    // MARK: Automatisches Lernen aus Schranken-Modus
+
+    /// Korrigiert den Schließzeitpunkt automatisch — gibt den Firebase-Vote-Wert zurück
+    @discardableResult
+    func applyAutoClosingCorrection(_ delta: Double) -> Double {
+        let correction = delta * 0.3
+        closingOffsetAdjustment = (closingOffsetAdjustment + correction).clamped(to: minClosing...maxClosing)
+        feedbackCount += 1
+        persistLocal()
+        addVoteToFirebase(closing: correction, opening: nil)
+        return correction
+    }
+
+    /// Korrigiert die Öffnungsverzögerung automatisch — gibt den Firebase-Vote-Wert zurück
+    @discardableResult
+    func applyAutoOpeningCorrection(_ delta: Double) -> Double {
+        let correction = delta * 0.3
+        openingDelayAdjustment = (openingDelayAdjustment + correction).clamped(to: minOpening...maxOpening)
+        feedbackCount += 1
+        persistLocal()
+        addVoteToFirebase(closing: nil, opening: correction)
+        return correction
+    }
+
+    var closingOffsetAdjustmentPublic: Double {
+        get { closingOffsetAdjustment }
+        set { closingOffsetAdjustment = newValue.clamped(to: minClosing...maxClosing); persistLocal() }
+    }
+
+    var openingDelayAdjustmentPublic: Double {
+        get { openingDelayAdjustment }
+        set { openingDelayAdjustment = newValue.clamped(to: minOpening...maxOpening); persistLocal() }
     }
 
     func saveStepSeconds(_ value: Double) {
@@ -225,67 +274,42 @@ final class FeedbackLearner {
         UserDefaults.standard.set(feedbackCount,           forKey: keyFeedbackCount)
     }
 
-    // MARK: Firebase — Option 2 (Median) + Option 3 (Undo-Sync)
+    // MARK: JSONBin — Option 2 (Median) + Option 3 (Undo-Sync)
 
-    /// Stimme hinzufügen — Firebase speichert alle Einzelstimmen als Array
     private func addVoteToFirebase(closing: Double?, opening: Double?) {
-        let db = Firestore.firestore()
-        var update: [String: Any] = ["lastUpdated": FieldValue.serverTimestamp()]
-        if let c = closing { update["closingVotes"] = FieldValue.arrayUnion([c]) }
-        if let o = opening { update["openingVotes"] = FieldValue.arrayUnion([o]) }
-        db.collection("learning").document("shared").setData(update, merge: true)
+        if let c = closing { closingVotesCache.append(c) }
+        if let o = opening { openingVotesCache.append(o) }
+        Task { await jsonBin.saveVotes(closingVotes: closingVotesCache, openingVotes: openingVotesCache) }
     }
 
-    /// Stimme entfernen (Undo) — Option 3
-    private func removeVoteFromFirebase(closing: Double?, opening: Double?) {
-        let db = Firestore.firestore()
-        var update: [String: Any] = [:]
-        if let c = closing { update["closingVotes"] = FieldValue.arrayRemove([c]) }
-        if let o = opening { update["openingVotes"] = FieldValue.arrayRemove([o]) }
-        guard !update.isEmpty else { return }
-        db.collection("learning").document("shared").updateData(update)
+    func removeVoteFromFirebasePublic(closing: Double?, opening: Double?) {
+        if let c = closing { closingVotesCache.removeAll { $0 == c } }
+        if let o = opening { openingVotesCache.removeAll { $0 == o } }
+        Task { await jsonBin.saveVotes(closingVotes: closingVotesCache, openingVotes: openingVotesCache) }
     }
 
-    /// Beim App-Start: Stimmen laden und Median berechnen — Option 2
-    private func loadFromFirebase() {
-        let db = Firestore.firestore()
-        db.collection("learning").document("shared").getDocument { [weak self] snapshot, error in
-            guard let self,
-                  let data = snapshot?.data(),
-                  error == nil else { return }
-
-            DispatchQueue.main.async {
-                let closingVotes = data["closingVotes"] as? [Double] ?? []
-                let openingVotes = data["openingVotes"] as? [Double] ?? []
-
-                // Median berechnen — ein Ausreißer kann nichts kaputt machen
-                if !closingVotes.isEmpty {
-                    let medianClosing = Self.median(of: closingVotes)
-                    self.closingOffsetAdjustment = medianClosing.clamped(to: minClosing...maxClosing)
-                }
-                if !openingVotes.isEmpty {
-                    let medianOpening = Self.median(of: openingVotes)
-                    self.openingDelayAdjustment = medianOpening.clamped(to: minOpening...maxOpening)
-                }
-
-                let totalVotes = closingVotes.count + openingVotes.count
-                if totalVotes > self.feedbackCount {
-                    self.feedbackCount = totalVotes
-                }
-
-                self.persistLocal()
+    private func loadFromJSONBin() async {
+        let (closingVotes, openingVotes) = await jsonBin.loadVotes()
+        await MainActor.run {
+            self.closingVotesCache = closingVotes
+            self.openingVotesCache = openingVotes
+            self.isCloudConnected  = true
+            if !closingVotes.isEmpty {
+                self.closingOffsetAdjustment = Self.median(of: closingVotes).clamped(to: minClosing...maxClosing)
             }
+            if !openingVotes.isEmpty {
+                self.openingDelayAdjustment = Self.median(of: openingVotes).clamped(to: minOpening...maxOpening)
+            }
+            let total = closingVotes.count + openingVotes.count
+            if total > self.feedbackCount { self.feedbackCount = total }
+            self.persistLocal()
         }
     }
 
-    /// Alle Votes löschen beim Reset
     private func resetFirebase() {
-        let db = Firestore.firestore()
-        db.collection("learning").document("shared").setData([
-            "closingVotes": [Double](),
-            "openingVotes": [Double](),
-            "lastUpdated":  FieldValue.serverTimestamp()
-        ], merge: true)
+        closingVotesCache = []
+        openingVotesCache = []
+        Task { await jsonBin.saveVotes(closingVotes: [], openingVotes: []) }
     }
 
     /// Median-Berechnung

@@ -11,13 +11,14 @@ struct CrossingEntry: TimelineEntry {
 }
 
 enum WidgetStatus: String {
-    case open, warning, closed
+    case open, warning, closed, unknown
 
     var color: Color {
         switch self {
         case .open:    .green
         case .warning: .yellow
         case .closed:  .red
+        case .unknown: .gray
         }
     }
     var label: String {
@@ -25,6 +26,7 @@ enum WidgetStatus: String {
         case .open:    "Offen"
         case .warning: "Schließt bald"
         case .closed:  "Geschlossen"
+        case .unknown: "Lädt…"
         }
     }
 }
@@ -43,8 +45,8 @@ struct WidgetTrain {
 // Liefert Apple das nächste Widget-Update — maximal alle 5 Minuten (Apple-Limit)
 
 struct CrossingProvider: TimelineProvider {
-    private let apiClientId = "647ab7f4b7e66f77ecb43a29c76e3b7b"
-    private let apiKey      = "c281c9ce7da96fdb8571d714cdf4dab8"
+    private let apiClientId = "7f8ece2b4a0824111555b04ab77a3290"
+    private let apiKey      = "b18663ed16ca9f92290b60aa774f3baa"
     private let stationEVA  = "8004158"
     private let dbBase      = "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1"
     private let offsetSeconds: Double = 180
@@ -72,7 +74,9 @@ struct CrossingProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<CrossingEntry>) -> Void) {
         Task {
             let entry = await fetchEntry()
-            let nextUpdate = Calendar.current.date(byAdding: .minute, value: 5, to: .now)!
+            // Bei Fehler schneller neu versuchen (1 min), sonst alle 2 min
+            let minutes = entry.status == .unknown ? 1 : 2
+            let nextUpdate = Calendar.current.date(byAdding: .minute, value: minutes, to: .now)!
             completion(Timeline(entries: [entry], policy: .after(nextUpdate)))
         }
     }
@@ -80,10 +84,13 @@ struct CrossingProvider: TimelineProvider {
     // MARK: Daten laden
 
     private func fetchEntry() async -> CrossingEntry {
-        guard let trains = try? await fetchTrains() else {
-            return CrossingEntry(date: .now, status: .open, nextTrains: [])
+        do {
+            let trains = try await fetchTrains()
+            return CrossingEntry(date: .now, status: worstStatus(trains), nextTrains: Array(trains.prefix(3)))
+        } catch {
+            // Bei Fehler: in 1 Minute nochmal versuchen, nicht einfach grün zeigen
+            return CrossingEntry(date: .now, status: .unknown, nextTrains: [])
         }
-        return CrossingEntry(date: .now, status: worstStatus(trains), nextTrains: Array(trains.prefix(3)))
     }
 
     private func fetchTrains() async throws -> [WidgetTrain] {
@@ -120,7 +127,12 @@ struct CrossingProvider: TimelineProvider {
     }
 
     private func isMunich(_ path: String) -> Bool {
-        ["feldmoching","münchen","ostbahnhof","laim","pasing"].contains { path.lowercased().contains($0) }
+        let stops = path.lowercased().components(separatedBy: "|")
+        let oshIndex = stops.firstIndex(where: { $0.contains("oberschlei") }) ?? -1
+        let futureStops = oshIndex >= 0 ? Array(stops[(oshIndex + 1)...]) : stops
+        let freisungKW = ["freising", "flughafen", "neufahrn", "pulling", "eching", "lohhof", "unterschlei"]
+        if futureStops.contains(where: { s in freisungKW.contains { s.contains($0) } }) { return false }
+        return true
     }
 
     private func worstStatus(_ trains: [WidgetTrain]) -> WidgetStatus {

@@ -1,8 +1,8 @@
 import Foundation
 
 // MARK: - Zugangsdaten
-private let dbClientId = "647ab7f4b7e66f77ecb43a29c76e3b7b"
-private let dbApiKey   = "c281c9ce7da96fdb8571d714cdf4dab8"
+private let dbClientId = "bb2d56302fc6faac8ac204a28a58beda"
+private let dbApiKey   = "e77347cdd2f22d6f600a4df38271f4af"
 
 private let stationEVA = "8004158"
 private let dbBase     = "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1"
@@ -16,22 +16,27 @@ struct TrainAPIService {
         let now  = Date()
         let next = now.addingTimeInterval(3600)
 
+
         // Plan (aktuelle + nächste Stunde) und Echtzeit-Änderungen parallel laden
         async let batch1   = fetchPlan(for: now)
         async let batch2   = fetchPlan(for: next)
         async let changes  = fetchChanges()
 
         let (stops1, stops2, changeMap) = try await (batch1, batch2, changes)
-        let allStops = stops1 + stops2
+
+        // Duplikate entfernen — selbe Stop-ID kann in beiden Stunden vorkommen
+        var seen = Set<String>()
+        let allStops = (stops1 + stops2).filter { seen.insert($0.id).inserted }
 
         // Plan-Stops mit Echtzeit-Daten anreichern
-        return allStops.compactMap { stop -> TrainEntry? in
+        let result = allStops.compactMap { stop -> TrainEntry? in
             var enriched = stop
             if let change = changeMap[stop.id] {
                 enriched.applyChange(change)
             }
             return TrainEntry(from: enriched)
         }
+        return result
     }
 
     // MARK: Plan
@@ -46,7 +51,7 @@ struct TrainAPIService {
 
     /// Gibt ein Dictionary [stopId: ChangeInfo] zurück
     private func fetchChanges() async throws -> [String: ChangeInfo] {
-        let url = URL(string: "\(dbBase)/fchg/\(stationEVA)")!
+        let url = URL(string: "\(dbBase)/rchg/\(stationEVA)")!
         let data = try await dbRequest(url)
         return ChangesXMLParser.parse(data: data)
     }
@@ -180,36 +185,80 @@ struct TrainEntry: Identifiable {
     let delayMinutes: Int
     let isCancelled: Bool
     let platform: String?
+    /// Hält der Zug an Oberschleißheim oder fährt er durch?
+    let stopsAtStation: Bool
 
     init?(from stop: TimetableStop) {
         guard let dp = stop.dp,
               let pt = dp.pt,
               let planned = DateFormatter.dbTime.date(from: pt) else { return nil }
 
-        let lineRaw  = dp.line ?? stop.trainNumber ?? ""
-        let lineName = lineRaw.hasPrefix("S") ? lineRaw : "S\(lineRaw)"
+        let lineRaw = dp.line ?? stop.trainNumber ?? ""
 
-        // Nur Linien zulassen die tatsächlich über den Bahnübergang Dachauer Str. fahren
-        let allowedLines: Set<String> = ["S1"]
-        guard allowedLines.contains(lineName) else { return nil }
+        // Nur S-Bahnen die nicht durch Oberschleißheim fahren herausfiltern
+        // Prüfen mit und ohne "S"-Prefix da die API beides liefern kann
+        let blockedSBahnen: Set<String> = ["2", "3", "4", "5", "6", "7", "8", "20",
+                                           "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S20"]
+        guard !blockedSBahnen.contains(lineRaw) else {
+            return nil
+        }
+
+        // Linienname bestimmen:
+        // "1" → "S1", große Zahlen (Fahrtnummern) → "S1", RB/RE bleiben wie sie sind
+        let lineName: String
+        if lineRaw == "1" {
+            lineName = "S1"
+        } else if lineRaw.hasPrefix("RB") || lineRaw.hasPrefix("RE") || lineRaw.hasPrefix("IC") {
+            lineName = lineRaw  // echten Namen behalten
+        } else if let nr = Int(lineRaw), nr > 9 {
+            lineName = "S1"     // Fahrtnummer → ist eine S1
+        } else {
+            lineName = lineRaw.hasPrefix("S") ? lineRaw : "S\(lineRaw)"
+        }
+
 
         let actual   = stop.actualDepartureTime ?? planned
         let delay    = Int(actual.timeIntervalSince(planned) / 60)
 
-        self.id            = stop.id
-        self.lineName      = lineName
-        self.scheduledTime = planned
-        self.actualTime    = actual
-        self.delayMinutes  = max(0, delay)
-        self.isCancelled   = stop.isCancelled
-        self.platform      = stop.changedPlatform
-        self.direction     = Self.detectDirection(path: dp.path ?? "")
+        // S1 hält immer — RE/RB fahren durch
+        let stops = lineName == "S1"
+
+        self.id             = stop.id
+        self.lineName       = lineName
+        self.scheduledTime  = planned
+        self.actualTime     = actual
+        self.delayMinutes   = max(0, delay)
+        self.isCancelled    = stop.isCancelled
+        self.platform       = stop.changedPlatform
+        self.stopsAtStation = stops
+        self.direction      = Self.detectDirection(path: dp.path ?? "")
     }
 
     private static func detectDirection(path: String) -> TrainDirection {
         let lower = path.lowercased()
-        let munichKeywords = ["feldmoching", "münchen", "ostbahnhof", "laim", "pasing", "hbf"]
-        return munichKeywords.contains { lower.contains($0) } ? .toMunich : .toFreising
+        let stops = lower.components(separatedBy: "|")
+
+        // Index von Oberschleißheim im Pfad finden
+        let oshIndex = stops.firstIndex(where: { $0.contains("oberschlei") }) ?? -1
+
+        // Nur die Stationen NACH Oberschleißheim prüfen (= Fahrtrichtung)
+        let futureStops: [String]
+        if oshIndex >= 0 && oshIndex + 1 < stops.count {
+            futureStops = Array(stops[(oshIndex + 1)...])
+        } else {
+            futureStops = stops  // Fallback: ganzen Pfad prüfen
+        }
+
+        let freisungKeywords = ["freising", "flughafen", "neufahrn", "pulling", "eching", "lohhof", "unterschlei"]
+        let munichKeywords   = ["feldmoching", "münchen", "ostbahnhof", "laim", "pasing", "moosach"]
+
+        if futureStops.contains(where: { s in freisungKeywords.contains { s.contains($0) } }) {
+            return .toFreising
+        }
+        if futureStops.contains(where: { s in munichKeywords.contains { s.contains($0) } }) {
+            return .toMunich
+        }
+        return .toMunich  // Fallback
     }
 }
 

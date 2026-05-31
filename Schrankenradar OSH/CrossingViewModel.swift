@@ -1,11 +1,13 @@
 import SwiftUI
 import Observation
+import WidgetKit
 
 // Abstand zwischen Station Oberschleißheim und Bahnübergang Dachauer Str. (in Sekunden)
 // Südlich gelegener Übergang:
 //   → München: Zug fährt ab, kreuzt danach  → + offset
 //   → Freising: Zug kommt an, kreuzte davor → - offset
-private let crossingOffsetSeconds: Double = 180
+private let crossingOffsetSeconds: Double      = 180  // S1 hält an Station
+private let crossingOffsetThroughSeconds: Double = 120  // RE/RB fahren durch, schneller
 
 @Observable
 final class CrossingViewModel {
@@ -39,6 +41,7 @@ final class CrossingViewModel {
             let trains = try await service.fetchDepartures()
             nextEvents = buildEvents(from: trains)
             lastUpdated = Date()
+            WidgetCenter.shared.reloadAllTimelines()  // Widget sofort aktualisieren
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -49,9 +52,11 @@ final class CrossingViewModel {
         trains
             .filter { !$0.isCancelled }
             .compactMap { train -> CrossingEvent? in
+                // Durchfahrende Züge (RE/RB) haben anderen Offset als haltende S1
+                let offsetBase = train.stopsAtStation ? crossingOffsetSeconds : crossingOffsetThroughSeconds
                 let base: Double = train.direction == .toMunich
-                    ? crossingOffsetSeconds
-                    : -crossingOffsetSeconds
+                    ? offsetBase
+                    : -offsetBase
                 let offset = feedback.totalClosingOffset(base: base)
 
                 let crossingTime = train.actualTime.addingTimeInterval(offset)

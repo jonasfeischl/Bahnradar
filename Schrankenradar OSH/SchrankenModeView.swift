@@ -2,6 +2,7 @@ import SwiftUI
 import Combine
 
 struct SchrankenModeView: View {
+    var viewModel: CrossingViewModel
     @State private var recorder = CrossingRecorder()
     @State private var showHistory = false
     @State private var tick = 0
@@ -21,7 +22,10 @@ struct SchrankenModeView: View {
                     closedView
 
                 case .selectingType:
-                    selectTypeView
+                    EmptyView()  // wird nicht mehr verwendet
+
+                case .confirmingTrains(_, let predicted):
+                    confirmTrainsView(predicted: predicted)
                 }
 
                 Spacer()
@@ -41,7 +45,7 @@ struct SchrankenModeView: View {
                             .padding(.horizontal)
                     }
                     .sheet(isPresented: $showHistory) {
-                        CrossingHistoryView(records: recorder.records)
+                        CrossingHistoryView(recorder: recorder, feedback: viewModel.feedback)
                     }
                 }
             }
@@ -67,7 +71,7 @@ struct SchrankenModeView: View {
                 .foregroundStyle(.secondary)
 
             Button {
-                recorder.markClosed()
+                recorder.markClosed(nextEvents: viewModel.nextEvents)
             } label: {
                 Text("Schranke ZU 🔴")
                     .font(.title2.bold())
@@ -101,7 +105,7 @@ struct SchrankenModeView: View {
                 .animation(.linear(duration: 0.3), value: tick)
 
             Button {
-                recorder.markOpen()
+                recorder.markOpenAndConfirm(feedback: viewModel.feedback, allEvents: viewModel.nextEvents)
             } label: {
                 Text("Schranke AUF 🟢")
                     .font(.title2.bold())
@@ -121,51 +125,120 @@ struct SchrankenModeView: View {
         }
     }
 
-    // MARK: - Zugtyp auswählen
 
-    private var selectTypeView: some View {
+    // MARK: - Zugbestätigung
+
+    @State private var confirmedEvents: Set<String> = []
+
+    @ViewBuilder
+    private func confirmTrainsView(predicted: [CrossingEvent]) -> some View {
         VStack(spacing: 20) {
-            Image(systemName: "questionmark.circle.fill")
+            Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 56))
-                .foregroundStyle(.orange)
+                .foregroundStyle(.blue)
 
-            Text("Was ist gefahren?")
+            Text(predicted.count == 1 ? "War der Zug da?" : "Welche Züge waren da?")
                 .font(.title2.bold())
 
-            Text("Wähle den Zugtyp aus der\ndie Schranke ausgelöst hat.")
+            Text("Bestätige welche Züge tatsächlich gefahren sind.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
 
-            VStack(spacing: 12) {
-                ForEach(RecordedTrainType.allCases, id: \.self) { type in
+            VStack(spacing: 10) {
+                ForEach(predicted) { event in
+                    let confirmed = confirmedEvents.contains(event.id)
                     Button {
-                        recorder.confirmType(type)
+                        if confirmed {
+                            confirmedEvents.remove(event.id)
+                        } else {
+                            confirmedEvents.insert(event.id)
+                        }
                     } label: {
                         HStack(spacing: 14) {
-                            Image(systemName: type.icon)
+                            Image(systemName: confirmed ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(confirmed ? .green : .secondary)
                                 .font(.title3)
-                            Text(type.rawValue)
-                                .font(.title3.bold())
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(event.train.lineName) → \(event.train.direction)")
+                                    .font(.subheadline.bold())
+                                Text("Erwartet um \(timeString(event.estimatedCrossingTime))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                             Spacer()
-                            Image(systemName: "chevron.right")
-                                .foregroundStyle(.tertiary)
                         }
-                        .padding(.vertical, 18)
-                        .padding(.horizontal, 20)
-                        .background(Color(.secondarySystemBackground))
-                        .foregroundStyle(.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .padding(14)
+                        .background(confirmed ? Color.green.opacity(0.1) : Color(.secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
+                    .foregroundStyle(.primary)
+                }
+
+                Divider()
+
+                // Sonderzug / Güterzug Option
+                Button {
+                    confirmedEvents.insert("sonderzug")
+                } label: {
+                    HStack(spacing: 14) {
+                        Image(systemName: confirmedEvents.contains("sonderzug") ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(confirmedEvents.contains("sonderzug") ? .orange : .secondary)
+                            .font(.title3)
+                        Text("Sonderzug / Güterzug war auch da")
+                            .font(.subheadline)
+                        Spacer()
+                    }
+                    .padding(14)
+                    .background(confirmedEvents.contains("sonderzug") ? Color.orange.opacity(0.1) : Color(.secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .foregroundStyle(.primary)
+
+                // Keiner war da
+                Button {
+                    confirmedEvents.removeAll()
+                    recorder.confirmTrains(confirmed: [], feedback: viewModel.feedback)
+                } label: {
+                    Text("Keiner dieser Züge war da")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(14)
+                        .background(Color(.secondarySystemBackground))
+                        .foregroundStyle(.secondary)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
             }
             .padding(.horizontal)
 
-            Button("Abbrechen", role: .cancel) {
-                recorder.cancel()
+            // Bestätigen Button
+            Button {
+                let confirmed = predicted.filter { confirmedEvents.contains($0.id) }
+                confirmedEvents.removeAll()
+                recorder.confirmTrains(confirmed: confirmed, feedback: viewModel.feedback)
+            } label: {
+                Text("Bestätigen ✓")
+                    .font(.title3.bold())
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(confirmedEvents.isEmpty ? Color.gray : Color.blue)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .padding(.horizontal)
+            }
+            .disabled(confirmedEvents.isEmpty)
+
+            Button("Überspringen", role: .cancel) {
+                confirmedEvents.removeAll()
+                recorder.confirmTrains(confirmed: [], feedback: viewModel.feedback)
             }
             .foregroundStyle(.secondary)
-            .padding(.top, 4)
         }
+    }
+
+    private func timeString(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f.string(from: date)
     }
 
     // MARK: - Timer Text
@@ -181,7 +254,8 @@ struct SchrankenModeView: View {
 // MARK: - Historie
 
 struct CrossingHistoryView: View {
-    let records: [CrossingRecord]
+    let recorder: CrossingRecorder
+    let feedback: FeedbackLearner
     @Environment(\.dismiss) private var dismiss
 
     private let dateFormatter: DateFormatter = {
@@ -194,37 +268,66 @@ struct CrossingHistoryView: View {
 
     var body: some View {
         NavigationStack {
-            List(records) { record in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Image(systemName: record.trainType?.icon ?? "questionmark.circle")
-                            .foregroundStyle(record.trainType == nil ? Color.secondary : Color.blue)
-                        Text(record.trainType?.rawValue ?? "Unbekannt")
-                            .font(.subheadline.bold())
-                        Spacer()
-                        Text(record.durationText)
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.red)
-                    }
+            Group {
+                if recorder.records.isEmpty {
+                    ContentUnavailableView(
+                        "Keine Aufzeichnungen",
+                        systemImage: "list.bullet.clipboard",
+                        description: Text("Noch keine Schranken aufgezeichnet.")
+                    )
+                } else {
+                    List {
+                        ForEach(recorder.records) { record in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Image(systemName: record.trainType?.icon ?? "questionmark.circle")
+                                        .foregroundStyle(record.trainType == nil ? Color.secondary : Color.blue)
+                                    Text(record.trainType?.rawValue ?? "Unbekannt")
+                                        .font(.subheadline.bold())
+                                    Spacer()
+                                    Text(record.durationText)
+                                        .font(.subheadline.bold())
+                                        .foregroundStyle(.red)
+                                }
 
-                    Text("Zu: \(dateFormatter.string(from: record.closedAt))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                                Text("Zu: \(dateFormatter.string(from: record.closedAt))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
 
-                    if let openedAt = record.openedAt {
-                        Text("Auf: \(dateFormatter.string(from: openedAt))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                                if let openedAt = record.openedAt {
+                                    Text("Auf: \(dateFormatter.string(from: openedAt))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                if let delta = record.autoClosingDelta {
+                                    Text("Lernkorrektur: \(delta > 0 ? "+" : "")\(Int(delta))s")
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .onDelete { indexSet in
+                            indexSet.forEach { recorder.delete(recorder.records[$0], feedback: feedback) }
+                        }
                     }
+                    .listStyle(.insetGrouped)
                 }
-                .padding(.vertical, 4)
             }
-            .listStyle(.insetGrouped)
             .navigationTitle("Aufzeichnungen")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button("Fertig") { dismiss() }
+                }
+                if !recorder.records.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Alle löschen", role: .destructive) {
+                            recorder.deleteAll(feedback: feedback)
+                        }
+                        .foregroundStyle(.red)
+                    }
                 }
             }
         }
@@ -232,5 +335,5 @@ struct CrossingHistoryView: View {
 }
 
 #Preview {
-    SchrankenModeView()
+    SchrankenModeView(viewModel: CrossingViewModel())
 }

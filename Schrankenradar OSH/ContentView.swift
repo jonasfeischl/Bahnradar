@@ -1,16 +1,18 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var viewModel         = CrossingViewModel()
-    @State private var drivingDetector   = DrivingDetector()
-    @State private var locationMonitor   = LocationMonitor()
-    @State private var voiceAnnouncer    = VoiceAnnouncer()
+    var viewModel: CrossingViewModel
+    var locationMonitor: LocationMonitor
+    var voiceAnnouncer: VoiceAnnouncer
+    @State private var drivingDetector    = DrivingDetector()
     @State private var lastSpokenStatus: CrossingStatus? = nil
+    @State private var rotationAngle: Double = 0
     @State private var showFeedbackSheet  = false
     @State private var showFeedbackHistory = false
+    @AppStorage("voiceEnabled") private var voiceEnabled: Bool = true
 
     private var voiceActive: Bool {
-        drivingDetector.isDriving && locationMonitor.isNearCrossing
+        voiceEnabled && drivingDetector.isDriving && locationMonitor.isNearCrossing
     }
 
     var body: some View {
@@ -36,7 +38,20 @@ struct ContentView: View {
                 }
                 .navigationTitle("Schrankenradar OSH")
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar { refreshButton }
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            withAnimation(.linear(duration: 0.6)) {
+                                rotationAngle += 360
+                            }
+                            Task { await viewModel.fetchData() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .rotationEffect(.degrees(rotationAngle))
+                        }
+                        .disabled(viewModel.isLoading)
+                    }
+                }
             }
         }
         .task {
@@ -205,11 +220,22 @@ struct ContentView: View {
     }
 
     private var disclaimer: some View {
-        Text("Hinweis: Güterzüge und Sonderfahrten können nicht erfasst werden. Alle Angaben sind Schätzungen.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal)
+        VStack(spacing: 6) {
+            Text("Hinweis: Güterzüge und Sonderfahrten können nicht erfasst werden. Alle Angaben sind Schätzungen.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(viewModel.feedback.isCloudConnected ? Color.green : Color.red)
+                    .frame(width: 7, height: 7)
+                Text(viewModel.feedback.isCloudConnected ? "Verbunden mit Cloud" : "Nicht verbunden mit Cloud")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
     }
 
     private func errorBanner(_ message: String) -> some View {
@@ -224,18 +250,8 @@ struct ContentView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
-    @ToolbarContentBuilder
-    private var refreshButton: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                Task { await viewModel.fetchData() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .disabled(viewModel.isLoading)
-        }
-    }
 }
+
 
 // MARK: - Train Event Row
 
@@ -587,6 +603,4 @@ struct FlowLayout: Layout {
     }
 }
 
-#Preview {
-    ContentView()
-}
+
