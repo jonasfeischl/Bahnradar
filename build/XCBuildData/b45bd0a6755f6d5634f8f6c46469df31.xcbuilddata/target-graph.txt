@@ -1,0 +1,4 @@
+Target dependency graph (2 targets)
+Target 'Schrankenradar OSH' in project 'Schrankenradar OSH'
+➜ Explicit dependency on target 'SchrankenradarWidgetExtension' in project 'Schrankenradar OSH'
+Target 'SchrankenradarWidgetExtension' in project 'Schrankenradar OSH' (no dependencies)

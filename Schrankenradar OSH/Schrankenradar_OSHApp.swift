@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UserNotifications
 
 @main
 struct Schrankenradar_OSHApp: App {
@@ -31,6 +32,10 @@ struct Schrankenradar_OSHApp: App {
                     .tabItem {
                         Label("Einstellungen", systemImage: "gearshape.fill")
                     }
+            }
+            .task {
+                UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+                UNUserNotificationCenter.current().removeAllDeliveredNotifications()
             }
         }
     }

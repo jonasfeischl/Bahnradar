@@ -9,8 +9,11 @@ struct SettingsView: View {
     @State private var radiusInput: String = ""
     @State private var showDeleteConfirmation = false
     @State private var showHelp = false
+    @FocusState private var focusedCrossing: Int?
+
 
     var body: some View {
+        @Bindable var store = viewModel.store
         NavigationStack {
             Form {
 
@@ -31,59 +34,99 @@ struct SettingsView: View {
                     Text("Sprachansagen werden automatisch ausgelöst wenn du fährst und dich in der Nähe der Schranke befindest.")
                 }
 
-                // MARK: Radius
+                // MARK: Bahnübergänge
                 Section {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("Aktueller Radius:")
-                            Spacer()
-                            Text("\(Int(locationMonitor.radius)) m")
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Slider(
-                            value: $locationMonitor.radius,
-                            in: 500...10000,
-                            step: 500
-                        )
-                        .tint(.blue)
-
-                        HStack {
-                            Text("500 m")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text("10 km")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    // Schnellwahl
-                    HStack(spacing: 10) {
-                        ForEach([1000, 2000, 5000], id: \.self) { value in
-                            Button {
-                                locationMonitor.radius = Double(value)
-                            } label: {
-                                Text(value >= 1000 ? "\(value/1000) km" : "\(value) m")
-                                    .font(.caption)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 8)
-                                    .background(locationMonitor.radius == Double(value)
-                                        ? Color.blue.opacity(0.15)
-                                        : Color(.secondarySystemBackground))
-                                    .foregroundStyle(locationMonitor.radius == Double(value)
-                                        ? .blue : .primary)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    ForEach(0..<store.crossings.count, id: \.self) { index in
+                        let crossing = store.crossings[index]
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(crossing.name)
+                                        .font(.subheadline.bold())
+                                    Text(crossing.subtitle)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if false {
+                                    Label("GPS fehlt", systemImage: "location.slash")
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                }
                             }
-                            .buttonStyle(.plain)
-                        }
-                    }
+                            HStack(spacing: 16) {
+                                Toggle("Sprache", isOn: $store.crossings[index].voiceEnabled)
+                                    .onChange(of: crossing.voiceEnabled) { _, _ in store.update(crossing) }
+                                    .labelsHidden()
+                                Text("Sprache")
+                                    .font(.caption)
+                                Spacer()
+                                Picker("Radius", selection: $store.crossings[index].radiusMeters) {
+                                    Text("200m").tag(200.0)
+                                    Text("500m").tag(500.0)
+                                    Text("1 km").tag(1000.0)
+                                    Text("2 km").tag(2000.0)
+                                }
+                                .pickerStyle(.menu)
+                                .onChange(of: crossing.radiusMeters) { _, _ in store.update(crossing) }
+                            }
 
+
+                            // Timing-Offsets
+                            offsetSection(index: index, crossing: crossing)
+                                .padding(.top, 4)
+
+                            // Ansage-Template
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Ansage-Text")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                TextField("Ansage…", text: $store.crossings[index].announcementTemplate, axis: .vertical)
+                                    .font(.caption)
+                                    .padding(8)
+                                    .background(Color(.tertiarySystemBackground))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .lineLimit(3...5)
+                                    .focused($focusedCrossing, equals: index)
+                                    .onChange(of: crossing.announcementTemplate) { _, _ in store.update(crossing) }
+
+                                let placeholders: [(String, String)] = [
+                                    ("{status}", "Status"),
+                                    ("{linie}", "Linie"),
+                                    ("{richtung}", "Richtung"),
+                                    ("{zeit}", "Zeit")
+                                ]
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 6) {
+                                        ForEach(placeholders, id: \.0) { ph, label in
+                                            PlaceholderButton(label: label) {
+                                                store.crossings[index].announcementTemplate += ph
+                                                store.update(store.crossings[index])
+                                            }
+                                        }
+                                        Button {
+                                            store.crossings[index].announcementTemplate = CrossingLocation.defaultTemplate
+                                            store.update(store.crossings[index])
+                                        } label: {
+                                            Text("↺ Standard")
+                                                .font(.caption2)
+                                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                                .background(Color(.systemGray5))
+                                                .foregroundStyle(.secondary)
+                                                .clipShape(Capsule())
+                                        }.buttonStyle(.plain)
+                                    }
+                                }
+                                Text("Verfügbar: {status} {linie} {richtung} {zeit}")
+                                    .font(.caption2).foregroundStyle(.tertiary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
                 } header: {
-                    Text("Erkennungsradius")
+                    Text("Bahnübergänge")
                 } footer: {
-                    Text("Wie weit vom Bahnübergang entfernt Sprachansagen ausgelöst werden.")
+                    Text("Sprache und Radius können pro Übergang eingestellt werden.")
                 }
 
                 // MARK: Lerndaten
@@ -144,16 +187,216 @@ struct SettingsView: View {
             .sheet(isPresented: $showHelp) {
                 HelpView()
             }
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Fertig") { focusedCrossing = nil }
+                }
+            }
             .onAppear {
                 radiusInput = "\(Int(locationMonitor.radius))"
             }
         }
     }
 
+    // MARK: - Offset-Sektion
+
+    @ViewBuilder
+    private func offsetSection(index: Int, crossing: CrossingLocation) -> some View {
+        @Bindable var store = viewModel.store
+
+        let community = viewModel.communityOffsets[crossing.id]
+        DisclosureGroup {
+            VStack(spacing: 10) {
+
+                // → München
+                directionOffsetRow(
+                    label: "→ München",
+                    measured: crossing.measuredOffsetToMunich,
+                    localCount: crossing.autoMeasurementsMunich,
+                    communityCount: community?.munichCount ?? 0,
+                    source: crossing.offsetSource(toMunich: true, communityMunich: community?.munich),
+                    fallback: crossing.offsetToMunich,
+                    binding: $store.crossings[index].offsetToMunich,
+                    onStepperChange: { store.update(store.crossings[index]) }
+                )
+
+                // → Freising
+                directionOffsetRow(
+                    label: "→ Freising",
+                    measured: crossing.measuredOffsetToFreising,
+                    localCount: crossing.autoMeasurementsFreising,
+                    communityCount: community?.freisingCount ?? 0,
+                    source: crossing.offsetSource(toMunich: false, communityFreising: community?.freising),
+                    fallback: crossing.offsetToFreising,
+                    binding: $store.crossings[index].offsetToFreising,
+                    onStepperChange: { store.update(store.crossings[index]) }
+                )
+
+                // Sync-Status + Reset
+                HStack(spacing: 6) {
+                    syncStatusBadge(crossing: crossing, community: community)
+                    Spacer()
+                    if crossing.measuredOffsetToMunich != nil || crossing.measuredOffsetToFreising != nil {
+                        Button("Messungen löschen") {
+                            var c = crossing
+                            c.measuredOffsetToMunich   = nil
+                            c.measuredOffsetToFreising = nil
+                            c.gpsOffsetMeasurements    = 0
+                            c.autoMeasurementsMunich   = 0
+                            c.autoMeasurementsFreising = 0
+                            store.update(c)
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                    }
+                }
+            }
+            .padding(.top, 6)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: offsetIcon(crossing))
+                    .foregroundStyle(offsetColor(crossing))
+                    .font(.caption)
+                Text("Timing")
+                    .font(.caption)
+                    .foregroundStyle(offsetColor(crossing))
+                Text(offsetSummary(crossing))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: - Offset-Hilfsviews
+
+    @ViewBuilder
+    private func directionOffsetRow(
+        label: String,
+        measured: Double?,
+        localCount: Int,
+        communityCount: Int,
+        source: CrossingLocation.OffsetSource,
+        fallback: Double,
+        binding: Binding<Double>,
+        onStepperChange: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .font(.caption)
+                .frame(width: 90, alignment: .leading)
+
+            switch source {
+            case .local:
+                Image(systemName: "checkmark.seal.fill").foregroundStyle(.blue).font(.caption2)
+                Text("\(Int(measured ?? fallback))s")
+                    .font(.caption.bold()).foregroundStyle(.blue)
+                Text("lokal (\(localCount)×)")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+
+            case .community:
+                Image(systemName: "person.2.fill").foregroundStyle(.teal).font(.caption2)
+                Text("\(Int(measured ?? fallback))s")
+                    .font(.caption.bold()).foregroundStyle(.teal)
+                Text("community (\(communityCount)×)")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+
+            case .estimate:
+                Stepper(
+                    value: binding,
+                    in: -300...300,
+                    step: 5
+                ) {
+                    Text("\(Int(binding.wrappedValue))s")
+                        .font(.caption.bold())
+                    + Text(" (Schätzung)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                .onChange(of: binding.wrappedValue) { _, _ in onStepperChange() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func syncStatusBadge(crossing: CrossingLocation, community: CommunityGPSOffsets?) -> some View {
+        let localTotal = crossing.autoMeasurementsMunich + crossing.autoMeasurementsFreising
+        let communityTotal = (community?.munichCount ?? 0) + (community?.freisingCount ?? 0)
+
+        if !viewModel.gpsCloudSynced {
+            Label("Synchronisiere…", systemImage: "icloud.and.arrow.down")
+                .font(.caption2).foregroundStyle(.secondary)
+        } else if localTotal > 0 || communityTotal > 0 {
+            HStack(spacing: 4) {
+                Image(systemName: "icloud.fill").foregroundStyle(.teal).font(.caption2)
+                if localTotal > 0 {
+                    Text("\(localTotal) lokal").font(.caption2).foregroundStyle(.blue)
+                }
+                if communityTotal > 0 {
+                    Text("· \(communityTotal) community").font(.caption2).foregroundStyle(.teal)
+                }
+            }
+        } else {
+            Label("Noch keine GPS-Daten", systemImage: "location.slash")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    private func offsetIcon(_ c: CrossingLocation) -> String {
+        let community = viewModel.communityOffsets[c.id]
+        let src = [c.offsetSource(toMunich: true, communityMunich: community?.munich),
+                   c.offsetSource(toMunich: false, communityFreising: community?.freising)]
+        if src.allSatisfy({ $0 == .local }) { return "checkmark.seal.fill" }
+        if src.contains(.local) || src.contains(.community) { return "checkmark.circle.fill" }
+        return "ruler"
+    }
+
+    private func offsetColor(_ c: CrossingLocation) -> Color {
+        let community = viewModel.communityOffsets[c.id]
+        let src = [c.offsetSource(toMunich: true, communityMunich: community?.munich),
+                   c.offsetSource(toMunich: false, communityFreising: community?.freising)]
+        if src.contains(.local) { return .blue }
+        if src.contains(.community) { return .teal }
+        return .secondary
+    }
+
+    private func offsetSummary(_ c: CrossingLocation) -> String {
+        let community = viewModel.communityOffsets[c.id]
+        let mOff = c.bestOffset(toMunich: true, communityMunich: community?.munich)
+        let fOff = c.bestOffset(toMunich: false, communityFreising: community?.freising)
+        let mSrc = c.offsetSource(toMunich: true, communityMunich: community?.munich)
+        let fSrc = c.offsetSource(toMunich: false, communityFreising: community?.freising)
+        let mMark = mSrc == .estimate ? "" : " ✓"
+        let fMark = fSrc == .estimate ? "" : " ✓"
+        return "Mchn: \(Int(mOff))s\(mMark) · Fsg: \(Int(fOff))s\(fMark)"
+    }
+
     private func testVoice() {
         let status = viewModel.worstUpcomingStatus
         let next = viewModel.nextEvents.first { $0.minutesUntil > 0 }
-        voiceAnnouncer.announce(status: status, nextEvent: next)
+        let template = viewModel.selectedCrossing.announcementTemplate
+        voiceAnnouncer.announce(status: status, nextEvent: next, template: template.isEmpty ? nil : template)
+    }
+}
+
+// MARK: - Placeholder Button
+
+struct PlaceholderButton: View {
+    let label: String
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Text("+ \(label)")
+                .font(.caption2)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.accentColor.opacity(0.15))
+                .foregroundStyle(Color.accentColor)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -169,7 +412,14 @@ struct HelpView: View {
                     icon: "antenna.radiowaves.left.and.right",
                     color: .blue,
                     title: "Radar Tab",
-                    text: "Zeigt den aktuellen Status des Bahnübergangs Dachauer Str. in Oberschleißheim. Die Ampel zeigt ob die Schranke vermutlich offen, schließt bald oder geschlossen ist — basierend auf echten Zugdaten der Deutschen Bahn."
+                    text: "Zeigt den aktuellen Status des ausgewählten Bahnübergangs. Die Ampel zeigt ob die Schranke vermutlich offen, schließt bald oder geschlossen ist — basierend auf echten Zugdaten der Deutschen Bahn."
+                )
+
+                helpSection(
+                    icon: "line.3.horizontal",
+                    color: .blue,
+                    title: "Bahnübergänge wechseln",
+                    text: "Tippe oben links auf die drei Striche um zwischen den Bahnübergängen zu wechseln. Die App wechselt auch automatisch wenn du in den Radius eines Übergangs fährst."
                 )
 
                 helpSection(
@@ -190,21 +440,21 @@ struct HelpView: View {
                     icon: "speaker.wave.2.fill",
                     color: .orange,
                     title: "Sprachansagen",
-                    text: "Wenn du im Auto sitzt und dich in der Nähe der Schranke befindest, sagt die App automatisch den Status der Schranke an. Den Radius kannst du hier einstellen. Mit 'Sprache testen' kannst du prüfen ob die Ansage funktioniert."
+                    text: "Wenn du im Auto sitzt und dich in der Nähe eines Bahnübergangs befindest, sagt die App automatisch den Status an. Sprache und Radius können pro Übergang in den Einstellungen konfiguriert werden."
                 )
 
                 helpSection(
                     icon: "location.circle.fill",
                     color: .blue,
                     title: "Erkennungsradius",
-                    text: "Bestimmt wie nah du am Bahnübergang sein musst damit Sprachansagen ausgelöst werden. Kleiner Radius = nur direkt an der Schranke. Großer Radius = auch von weiter weg."
+                    text: "Jeder Bahnübergang hat seinen eigenen Radius. Bestimmt wie nah du sein musst damit Sprachansagen ausgelöst werden und die App automatisch wechselt. Einstellbar pro Übergang im Einstellungs-Tab."
                 )
 
                 helpSection(
                     icon: "brain",
                     color: .purple,
                     title: "Lerndaten",
-                    text: "Die App lernt aus deinem Feedback und aus dem Schranken-Modus. Die Lerndaten werden in der Cloud gespeichert und mit allen Nutzern geteilt — so wird die App für alle besser. Du kannst nur deine eigenen Daten löschen."
+                    text: "Die App lernt aus deinem Feedback. Die Lerndaten werden in der Cloud gespeichert und mit allen Nutzern geteilt — so wird die App für alle besser. Du kannst nur deine eigenen Daten löschen."
                 )
 
                 helpSection(

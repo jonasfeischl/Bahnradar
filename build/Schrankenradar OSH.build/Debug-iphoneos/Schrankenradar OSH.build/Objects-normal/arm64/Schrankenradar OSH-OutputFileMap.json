@@ -1,0 +1,229 @@
+{
+  "" : {
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Schrankenradar OSH-primary.dia",
+    "emit-module-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Schrankenradar OSH-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Schrankenradar OSH-primary-emit-module.dia",
+    "pch" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Schrankenradar OSH-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Schrankenradar OSH-primary.swiftdeps"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/ContentView.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/ContentView.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/ContentView.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/ContentView.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/ContentView.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/ContentView.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/ContentView~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/CrossingActivityAttributes.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingActivityAttributes.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingActivityAttributes.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingActivityAttributes.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingActivityAttributes.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingActivityAttributes.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingActivityAttributes.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingActivityAttributes.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingActivityAttributes~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/CrossingLocation.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingLocation.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingLocation.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingLocation.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingLocation.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingLocation.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingLocation.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingLocation.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingLocation~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/CrossingRecorder.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingRecorder.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingRecorder.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingRecorder.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingRecorder.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingRecorder.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingRecorder.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingRecorder.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingRecorder~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/CrossingViewModel.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingViewModel.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingViewModel.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingViewModel.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingViewModel.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingViewModel.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingViewModel.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingViewModel.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/CrossingViewModel~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/DailyPatternView.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DailyPatternView.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DailyPatternView.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DailyPatternView.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DailyPatternView.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DailyPatternView.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DailyPatternView.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DailyPatternView.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DailyPatternView~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/DrivingDetector.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingDetector.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingDetector.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingDetector.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingDetector.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingDetector.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingDetector.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingDetector.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingDetector~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/DrivingView.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingView.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingView.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingView.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingView.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingView.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingView.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingView.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/DrivingView~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/FeedbackLearner.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/FeedbackLearner.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/FeedbackLearner.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/FeedbackLearner.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/FeedbackLearner.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/FeedbackLearner.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/FeedbackLearner.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/FeedbackLearner.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/FeedbackLearner~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/GeopsRealtimeService.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeopsRealtimeService.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeopsRealtimeService.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeopsRealtimeService.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeopsRealtimeService.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeopsRealtimeService.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeopsRealtimeService.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeopsRealtimeService.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeopsRealtimeService~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/JSONBinService.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/JSONBinService.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/JSONBinService.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/JSONBinService.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/JSONBinService.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/JSONBinService.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/JSONBinService.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/JSONBinService.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/JSONBinService~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/LocationMonitor.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/LocationMonitor.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/LocationMonitor.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/LocationMonitor.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/LocationMonitor.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/LocationMonitor.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/LocationMonitor.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/LocationMonitor.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/LocationMonitor~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/Models.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Models.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Models.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Models.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Models.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Models.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Models.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Models.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Models~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/SchrankenModeView.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SchrankenModeView.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SchrankenModeView.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SchrankenModeView.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SchrankenModeView.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SchrankenModeView.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SchrankenModeView.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SchrankenModeView.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SchrankenModeView~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/Schrankenradar_OSHApp.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Schrankenradar_OSHApp.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Schrankenradar_OSHApp.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Schrankenradar_OSHApp.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Schrankenradar_OSHApp.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Schrankenradar_OSHApp.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Schrankenradar_OSHApp.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Schrankenradar_OSHApp.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/Schrankenradar_OSHApp~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/SettingsView.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SettingsView.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SettingsView.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SettingsView.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SettingsView.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SettingsView.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SettingsView.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SettingsView.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SettingsView~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/SidebarView.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SidebarView.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SidebarView.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SidebarView.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SidebarView.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SidebarView.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SidebarView.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SidebarView.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SidebarView~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/SiriIntents.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SiriIntents.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SiriIntents.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SiriIntents.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SiriIntents.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SiriIntents.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SiriIntents.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SiriIntents.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/SiriIntents~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/TrafficLightView.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrafficLightView.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrafficLightView.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrafficLightView.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrafficLightView.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrafficLightView.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrafficLightView.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrafficLightView.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrafficLightView~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/TrainAPIService.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrainAPIService.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrainAPIService.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrainAPIService.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrainAPIService.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrainAPIService.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrainAPIService.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrainAPIService.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/TrainAPIService~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/Schrankenradar OSH/VoiceAnnouncer.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/VoiceAnnouncer.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/VoiceAnnouncer.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/VoiceAnnouncer.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/VoiceAnnouncer.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/VoiceAnnouncer.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/VoiceAnnouncer.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/VoiceAnnouncer.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/VoiceAnnouncer~partial.swiftmodule"
+  },
+  "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "index-unit-output-path" : "/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps",
+    "swiftmodule" : "/Users/jonasfeischl/Library/Mobile Documents/com~apple~CloudDocs/XCode/Schrankenradar OSH/build/Schrankenradar OSH.build/Debug-iphoneos/Schrankenradar OSH.build/Objects-normal/arm64/GeneratedAssetSymbols~partial.swiftmodule"
+  }
+}

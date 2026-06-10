@@ -5,26 +5,32 @@ struct ContentView: View {
     var viewModel: CrossingViewModel
     var locationMonitor: LocationMonitor
     var voiceAnnouncer: VoiceAnnouncer
-    @State private var drivingDetector    = DrivingDetector()
-    @State private var lastSpokenStatus: CrossingStatus? = nil
+    @State private var drivingDetector = DrivingDetector()
     @State private var rotationAngle: Double = 0
     @State private var showFeedbackSheet  = false
     @State private var showFeedbackHistory = false
     @AppStorage("voiceEnabled") private var voiceEnabled: Bool = true
     @Environment(\.scenePhase) private var scenePhase
     @State private var now: Date = Date()
+    @State private var showSidebar: Bool = false
+    @State private var lastHapticStatus: CrossingStatus? = nil
+    @State private var isInitialized = false
 
     private var voiceActive: Bool {
-        voiceEnabled && drivingDetector.isDriving && locationMonitor.isNearCrossing
+        voiceEnabled && viewModel.isDriving && viewModel.isNearCrossing
     }
 
     var body: some View {
+        SidebarContainerView(isOpen: $showSidebar, store: viewModel.store) {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
                     statusHeader
+                    safetyWarningBanner
                     TrafficLightView(status: viewModel.worstStatus(at: now))
                     statusLabel
+                    openingCountdown
+                    accuracyBadge
                     voiceBadge
                     if viewModel.isLoading && viewModel.nextEvents.isEmpty {
                         ProgressView("Lade Zugdaten...")
@@ -38,9 +44,16 @@ struct ContentView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Schrankenradar OSH")
+            .navigationTitle(viewModel.selectedCrossing.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.25)) { showSidebar = true }
+                    } label: {
+                        Image(systemName: "line.3.horizontal")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         withAnimation(.linear(duration: 0.6)) { rotationAngle += 360 }
@@ -53,33 +66,54 @@ struct ContentView: View {
                 }
             }
         }
+        } // SidebarContainerView
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { date in
             now = date
+            triggerHapticIfNeeded()
         }
-        .task {
-            viewModel.startAutoRefresh()
-            drivingDetector.start()
-        }
-        .onChange(of: scenePhase) { oldPhase, phase in
-            if phase == .active && oldPhase == .background {
+        .onAppear {
+            if !isInitialized {
+                // Einmaliges Setup beim allerersten Start
+                isInitialized = true
+                viewModel.setup(voiceAnnouncer: voiceAnnouncer)
                 viewModel.startAutoRefresh()
-            } else if phase == .background {
-                viewModel.stopAutoRefresh()
+                drivingDetector.start()
+                locationMonitor.crossings = viewModel.store.crossings
+                locationMonitor.onAutoSwitch = { crossing in
+                    guard viewModel.store.selectedId != crossing.id else { return }
+                    viewModel.store.select(crossing)
+                    Task { await viewModel.fetchData() }
+                }
+            } else {
+                // Rückkehr vom Settings-Tab: nur DB-Fetch fortsetzen
+                viewModel.resumeRefresh()
             }
         }
         .onDisappear {
-            viewModel.stopAutoRefresh()
-            drivingDetector.stop()
-            locationMonitor.stop()
+            // Tab-Wechsel: nur DB-Fetch pausieren, Geops NICHT trennen
+            viewModel.pauseRefresh()
+        }
+        .onChange(of: scenePhase) { oldPhase, phase in
+            if phase == .active && oldPhase == .background {
+                // App aus Hintergrund: Geops reconnecten + alles neu starten
+                viewModel.startAutoRefresh()
+                drivingDetector.start()
+            } else if phase == .background {
+                // App geht in Hintergrund: alles stoppen
+                viewModel.stopAutoRefresh()
+                drivingDetector.stop()
+                locationMonitor.stop()
+            }
         }
         .onChange(of: drivingDetector.isDriving) { _, driving in
             if driving { locationMonitor.start() } else { locationMonitor.stop() }
+            viewModel.isDriving = driving
         }
-        .onChange(of: viewModel.worstUpcomingStatus) { _, newStatus in
-            guard voiceActive, newStatus != lastSpokenStatus else { return }
-            lastSpokenStatus = newStatus
-            let next = viewModel.nextEvents.first { $0.minutesUntil > 0 }
-            voiceAnnouncer.announce(status: newStatus, nextEvent: next)
+        .onChange(of: locationMonitor.isNearCrossing) { _, near in
+            viewModel.isNearCrossing = near
+        }
+        .onChange(of: viewModel.store.selectedId) { _, _ in
+            Task { await viewModel.fetchData() }
         }
     }
 
@@ -87,8 +121,9 @@ struct ContentView: View {
 
     private var statusHeader: some View {
         VStack(spacing: 4) {
-            Text("Bahnübergang Dachauer Str.")
-                .font(.headline)
+            Text(viewModel.selectedCrossing.subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             if let updated = viewModel.lastUpdated {
                 Text("Aktualisiert \(updated.formatted(date: .omitted, time: .shortened))")
                     .font(.caption)
@@ -109,6 +144,277 @@ struct ContentView: View {
         .animation(.easeInOut, value: status)
     }
 
+    // MARK: - Haptisches Feedback
+
+    private func triggerHapticIfNeeded() {
+        let current = viewModel.worstStatus(at: now)
+        guard current != lastHapticStatus else { return }
+        defer { lastHapticStatus = current }
+
+        // Nur haptisch wenn der Nutzer fährt und in der Nähe ist
+        guard viewModel.isDriving && viewModel.isNearCrossing else { return }
+
+        switch current {
+        case .closed:
+            // Doppel-Schlag: Alarm-Muster
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+            }
+        case .warning:
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        case .opening:
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        case .open:
+            if lastHapticStatus == .closed || lastHapticStatus == .opening {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
+        }
+    }
+
+    // MARK: - Sicherheits-Banner
+
+    /// Zeigt ein Banner wenn die DB-Daten > 2 Minuten alt sind.
+    @ViewBuilder
+    private var safetyWarningBanner: some View {
+        if viewModel.dataIsStale {
+            HStack(spacing: 8) {
+                Image(systemName: "clock.badge.exclamationmark")
+                Text("Daten veraltet – Aktualität nicht garantiert")
+                    .font(.caption.bold())
+                Spacer()
+                Button {
+                    Task { await viewModel.fetchData() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption.bold())
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Color.orange)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .animation(.easeInOut, value: viewModel.dataIsStale)
+        }
+    }
+
+    // MARK: - Öffnungs-Countdown + Zugfolge
+
+    @ViewBuilder
+    private var openingCountdown: some View {
+        let status     = viewModel.worstStatus(at: now)
+        let chainCount = viewModel.chainedTrainCount(at: now)
+        let openTime   = viewModel.estimatedOpeningTime(at: now)
+
+        if status == .closed || status == .opening {
+            VStack(spacing: 6) {
+                // Zugfolge-Badge
+                if chainCount > 1 {
+                    HStack(spacing: 6) {
+                        Image(systemName: "tram.fill.tunnel")
+                            .foregroundStyle(.orange)
+                        Text("\(chainCount) Züge in Folge")
+                            .font(.caption.bold())
+                            .foregroundStyle(.orange)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(Color.orange.opacity(0.12))
+                    .clipShape(Capsule())
+                }
+
+                // Öffnungszeit
+                if let openTime {
+                    let secsUntil = Int(openTime.timeIntervalSince(now))
+                    if secsUntil > 0 {
+                        HStack(spacing: 5) {
+                            Image(systemName: "lock.open.fill")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                            Text("Öffnet ~")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            + Text("\(openTime, style: .time)")
+                                .font(.caption.bold())
+                                .foregroundStyle(.primary)
+                            Text("(in \(secsUntil)s)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .contentTransition(.numericText())
+                        }
+                    } else {
+                        Label("Öffnet gleich", systemImage: "lock.open.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Genauigkeits-Indikator
+
+    private enum AccuracyLevel {
+        case estimate, learning, calibrated, precise
+
+        var label: String {
+            switch self {
+            case .estimate:   return "Schätzung"
+            case .learning:   return "Gelernt"
+            case .calibrated: return "Kalibriert"
+            case .precise:    return "Präzise"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .estimate:   return "questionmark.circle"
+            case .learning:   return "arrow.triangle.2.circlepath"
+            case .calibrated: return "checkmark.circle"
+            case .precise:    return "checkmark.circle.fill"
+            }
+        }
+        var color: Color {
+            switch self {
+            case .estimate:   return .secondary
+            case .learning:   return .orange
+            case .calibrated: return .blue
+            case .precise:    return .green
+            }
+        }
+        var detail: String {
+            switch self {
+            case .estimate:   return "Noch keine eigenen Messungen. Nutze den Schranken-Modus um die Genauigkeit zu verbessern."
+            case .learning:   return "Feedback vorhanden, aber noch zu wenig Aufzeichnungen für eine genaue Kalibrierung (mind. 3 pro Richtung)."
+            case .calibrated: return "Eine Fahrtrichtung ist aus eigenen Aufzeichnungen kalibriert."
+            case .precise:    return "Beide Fahrtrichtungen sind aus echten Messungen kalibriert. Höchste Genauigkeit."
+            }
+        }
+    }
+
+    private var accuracyLevel: AccuracyLevel {
+        let crossing  = viewModel.selectedCrossing
+        let feedback  = viewModel.feedback
+        let community = viewModel.communityOffsets[crossing.id]
+
+        let localMunich    = crossing.autoMeasurementsMunich >= 3
+        let localFreising  = crossing.autoMeasurementsFreising >= 3
+        let commMunich     = community?.munich != nil
+        let commFreising   = community?.freising != nil
+
+        // Präzise: beide Richtungen aus eigenen Messungen kalibriert
+        if localMunich && localFreising                         { return .precise }
+        // Kalibriert: eine Richtung lokal ODER beide aus Community
+        if localMunich || localFreising                         { return .calibrated }
+        if commMunich && commFreising                           { return .calibrated }
+        // Lernend: Community-Daten für eine Richtung ODER manuelles Feedback
+        if commMunich || commFreising                           { return .learning }
+        if feedback.feedbackCount > 0
+            || feedback.closingOffsetToMunich != 0
+            || feedback.closingOffsetToFreising != 0            { return .learning }
+        return .estimate
+    }
+
+    @State private var showAccuracyDetail = false
+
+    private var accuracyBadge: some View {
+        let level = accuracyLevel
+        return Button {
+            showAccuracyDetail = true
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: level.icon)
+                    .foregroundStyle(level.color)
+                Text(level.label)
+                    .font(.caption)
+                    .foregroundStyle(level.color)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(level.color.opacity(0.1))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showAccuracyDetail) {
+            accuracyDetailSheet
+        }
+    }
+
+    private var accuracyDetailSheet: some View {
+        let level    = accuracyLevel
+        let crossing = viewModel.selectedCrossing
+        let feedback = viewModel.feedback
+        return NavigationStack {
+            List {
+                Section {
+                    HStack(spacing: 14) {
+                        Image(systemName: level.icon)
+                            .font(.largeTitle)
+                            .foregroundStyle(level.color)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(level.label)
+                                .font(.headline)
+                            Text(level.detail)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Section("Messungen") {
+                    accuracyRow(
+                        label: "→ München",
+                        value: crossing.measuredOffsetToMunich.map { "\(Int($0))s gemessen" } ?? "Schätzwert",
+                        calibrated: crossing.measuredOffsetToMunich != nil
+                    )
+                    accuracyRow(
+                        label: "→ Freising",
+                        value: crossing.measuredOffsetToFreising.map { "\(Int($0))s gemessen" } ?? "Schätzwert",
+                        calibrated: crossing.measuredOffsetToFreising != nil
+                    )
+                }
+
+                Section("Korrekturen (Cloud)") {
+                    accuracyRow(label: "Allgemein",    value: offsetText(feedback.closingOffsetAdjustment), calibrated: feedback.closingOffsetAdjustment != 0)
+                    accuracyRow(label: "→ München",    value: offsetText(feedback.closingOffsetToMunich),   calibrated: feedback.closingOffsetToMunich != 0)
+                    accuracyRow(label: "→ Freising",   value: offsetText(feedback.closingOffsetToFreising), calibrated: feedback.closingOffsetToFreising != 0)
+                    accuracyRow(label: "Öffnungsverzögerung", value: offsetText(feedback.openingDelayAdjustment), calibrated: feedback.openingDelayAdjustment != 0)
+                }
+
+                Section {
+                    Text("Nutze den **Schranken-Modus** um eigene Messungen aufzuzeichnen. Ab 3 Messungen pro Richtung kalibriert sich die App automatisch.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Genauigkeit")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Fertig") { showAccuracyDetail = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func accuracyRow(label: String, value: String, calibrated: Bool) -> some View {
+        HStack {
+            Text(label).foregroundStyle(.primary)
+            Spacer()
+            Text(value)
+                .foregroundStyle(calibrated ? .blue : .secondary)
+                .font(.subheadline)
+        }
+    }
+
+    private func offsetText(_ value: Double) -> String {
+        guard value != 0 else { return "Kein Wert" }
+        return value > 0 ? "+\(Int(value))s" : "\(Int(value))s"
+    }
+
     // Zeigt ob Voice-Callouts gerade aktiv sind
     @ViewBuilder
     private var voiceBadge: some View {
@@ -118,7 +424,7 @@ struct ContentView: View {
                     .foregroundStyle(voiceActive ? .green : .orange)
                 Text(voiceActive
                      ? "Sprachansagen aktiv"
-                     : "Außerhalb von Oberschleißheim")
+                     : "Nicht in der Nähe der \(viewModel.selectedCrossing.name) Schranke")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -158,6 +464,7 @@ struct ContentView: View {
 
             HStack(spacing: 16) {
                 Button {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     viewModel.feedback.submitCorrect()
                 } label: {
                     Label("Stimmt", systemImage: "checkmark.circle.fill")
@@ -169,6 +476,7 @@ struct ContentView: View {
                 }
 
                 Button {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     showFeedbackSheet = true
                 } label: {
                     Label("Stimmt nicht", systemImage: "xmark.circle.fill")
@@ -191,12 +499,6 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .transition(.opacity)
                     .animation(.easeInOut, value: message)
-            }
-
-            if viewModel.feedback.feedbackCount > 0 {
-                Text(viewModel.feedback.debugDescription)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
             }
 
             // Mein Feedback
@@ -223,21 +525,33 @@ struct ContentView: View {
     }
 
     private var disclaimer: some View {
-        VStack(spacing: 6) {
-            Text("Hinweis: Güterzüge und Sonderfahrten können nicht erfasst werden. Alle Angaben sind Schätzungen.")
+        VStack(spacing: 8) {
+            Text("Güterzüge und Sonderfahrten können nicht erfasst werden. Alle Angaben sind Schätzungen.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
 
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(viewModel.feedback.isCloudConnected ? Color.green : Color.red)
-                    .frame(width: 7, height: 7)
-                Text(viewModel.feedback.isCloudConnected ? "Verbunden mit Cloud" : "Nicht verbunden mit Cloud")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+            // API-Status-Leiste
+            HStack(spacing: 16) {
+                apiDot(color: viewModel.dbConnected ? .green : .red,
+                       label: "DB Fahrplan")
+                apiDot(color: GeopsRealtimeService.shared.connectionState.color,
+                       label: "Geops Live")
+                apiDot(color: viewModel.feedback.isCloudConnected ? .green : .red,
+                       label: "Cloud")
             }
+        }
+    }
+
+    private func apiDot(color: Color, label: String) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
     }
 
@@ -336,114 +650,74 @@ struct FeedbackSheet: View {
     let learner: FeedbackLearner
     let onDone: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var stepInput: String = ""
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 24) {
-
-                Text("Was hat nicht gestimmt?")
-                    .font(.headline)
-
-                // --- Schrittgröße ---
-                HStack(spacing: 8) {
-                    Text("Schrittgröße:")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    TextField("\(Int(learner.stepSeconds))s", text: $stepInput)
-                        .keyboardType(.numberPad)
-                        .frame(width: 60)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color(.secondarySystemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .onChange(of: stepInput) { _, newValue in
-                            if let val = Double(newValue), val > 0 {
-                                learner.saveStepSeconds(val)
-                            }
-                        }
-                    Text("Sekunden pro Korrektur")
+            VStack(spacing: 0) {
+                // Header
+                VStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.largeTitle)
+                        .foregroundStyle(.orange)
+                    Text("Was hat nicht gestimmt?")
+                        .font(.title3.bold())
+                    Text("Dein Feedback hilft der App genauer zu werden.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
-                .onAppear { stepInput = "\(Int(learner.stepSeconds))" }
+                .padding(.top, 24)
+                .padding(.bottom, 28)
 
-                // --- Schranke: Schließen ---
-                VStack(alignment: .leading, spacing: 10) {
-                    Label("Schranke schließen", systemImage: "arrow.down.to.line")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.red)
+                // Buttons
+                VStack(spacing: 12) {
+                    feedbackRow(
+                        title: "App wurde zu früh rot",
+                        subtitle: "Schranke war noch offen",
+                        icon: "chevron.left.2",
+                        color: .orange
+                    ) { learner.submitTooEarlyRed() }
 
-                    HStack(spacing: 12) {
-                        feedbackButton(
-                            title: "Zu früh rot",
-                            subtitle: "App zeigte rot, Schranke war noch offen",
-                            icon: "clock.badge.xmark",
-                            color: .orange
-                        ) {
-                            learner.submitTooEarlyRed()
-                        }
+                    feedbackRow(
+                        title: "App wurde zu spät rot",
+                        subtitle: "Schranke war schon geschlossen",
+                        icon: "chevron.right.2",
+                        color: .red
+                    ) { learner.submitTooLateRed() }
 
-                        feedbackButton(
-                            title: "Zu spät rot",
-                            subtitle: "Schranke war schon zu, App noch grün",
-                            icon: "clock.badge.checkmark",
-                            color: .red
-                        ) {
-                            learner.submitTooLateRed()
-                        }
-                    }
+                    Divider().padding(.vertical, 4)
+
+                    feedbackRow(
+                        title: "App wurde zu früh grün",
+                        subtitle: "Schranke war noch geschlossen",
+                        icon: "chevron.left.2",
+                        color: .orange
+                    ) { learner.submitTooEarlyGreen() }
+
+                    feedbackRow(
+                        title: "App wurde zu spät grün",
+                        subtitle: "Schranke war schon offen",
+                        icon: "chevron.right.2",
+                        color: .green
+                    ) { learner.submitTooLateGreen() }
                 }
-
-                Divider()
-
-                // --- Schranke: Öffnen ---
-                VStack(alignment: .leading, spacing: 10) {
-                    Label("Schranke öffnen", systemImage: "arrow.up.to.line")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.green)
-
-                    HStack(spacing: 12) {
-                        feedbackButton(
-                            title: "Zu früh grün",
-                            subtitle: "App zeigte grün, Schranke war noch zu",
-                            icon: "clock.badge.xmark",
-                            color: .orange
-                        ) {
-                            learner.submitTooEarlyGreen()
-                        }
-
-                        feedbackButton(
-                            title: "Zu spät grün",
-                            subtitle: "Schranke war schon offen, App noch rot",
-                            icon: "clock.badge.checkmark",
-                            color: .green
-                        ) {
-                            learner.submitTooLateGreen()
-                        }
-                    }
-                }
+                .padding(.horizontal)
 
                 Spacer()
-
-                Text(learner.debugDescription)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
             }
-            .padding()
-            .navigationTitle("Korrektur")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Abbrechen") { dismiss() }
                 }
             }
         }
         .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
     }
 
     @ViewBuilder
-    private func feedbackButton(
+    private func feedbackRow(
         title: String,
         subtitle: String,
         icon: String,
@@ -451,27 +725,37 @@ struct FeedbackSheet: View {
         action: @escaping () -> Void
     ) -> some View {
         Button {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             action()
             onDone()
             dismiss()
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 14) {
                 Image(systemName: icon)
-                    .font(.title2)
+                    .font(.title3.bold())
                     .foregroundStyle(color)
-                Text(title)
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.primary)
-                Text(subtitle)
+                    .frame(width: 32)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(.tertiary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(color.opacity(0.1))
+            .padding(14)
+            .background(Color(.secondarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
+        .buttonStyle(.plain)
     }
 }
 

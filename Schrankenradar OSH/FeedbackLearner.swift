@@ -1,13 +1,11 @@
 import Foundation
 import Observation
 
-// MARK: - Konstanten
+// MARK: - Key-Hilfsfunktion (pro Übergang)
 
-private let keyClosingOffset  = "closingOffsetAdjustment"
-private let keyOpeningDelay   = "openingDelayAdjustment"
-private let keyFeedbackCount  = "feedbackCount"
-private let keyStepSeconds    = "feedbackStepSeconds"
-private let keyHistory        = "feedbackHistory"
+private func key(_ base: String, crossing: String) -> String {
+    "\(base)_\(crossing)"
+}
 
 let defaultStepSeconds: Double = 15
 private let minClosing: Double = -120
@@ -92,32 +90,57 @@ struct FeedbackEntry: Identifiable, Codable {
 @Observable
 final class FeedbackLearner {
 
+    let crossingId: String  // z.B. "osh_dachauer"
+
+    // Manuelles Feedback — gilt für beide Richtungen
     private(set) var closingOffsetAdjustment: Double
     private(set) var openingDelayAdjustment: Double
     private(set) var feedbackCount: Int
     var stepSeconds: Double
 
+    // Richtungs-spezifische Korrekturen aus dem Schranken-Modus
+    private(set) var closingOffsetToMunich: Double
+    private(set) var closingOffsetToFreising: Double
+
     var lastFeedbackMessage: String? = nil
     private(set) var isCloudConnected: Bool = false
     private let jsonBin = JSONBinService()
-    private var closingVotesCache: [Double] = []
-    private var openingVotesCache: [Double] = []
     private(set) var history: [FeedbackEntry] = []
 
-    init() {
-        closingOffsetAdjustment = UserDefaults.standard.double(forKey: keyClosingOffset)
-        openingDelayAdjustment  = UserDefaults.standard.double(forKey: keyOpeningDelay)
-        feedbackCount           = UserDefaults.standard.integer(forKey: keyFeedbackCount)
-        let stored = UserDefaults.standard.double(forKey: keyStepSeconds)
+    // UserDefaults Keys — pro Übergang eindeutig
+    private var keyClosingOffset:   String { key("closingOffsetAdjustment",  crossing: crossingId) }
+    private var keyOpeningDelay:    String { key("openingDelayAdjustment",   crossing: crossingId) }
+    private var keyFeedbackCount:   String { key("feedbackCount",            crossing: crossingId) }
+    private var keyStepSeconds:     String { key("feedbackStepSeconds",      crossing: crossingId) }
+    private var keyHistory:         String { key("feedbackHistory",          crossing: crossingId) }
+    private var keyClosingMunich:   String { key("closingOffsetMunich",      crossing: crossingId) }
+    private var keyClosingFreising: String { key("closingOffsetFreising",    crossing: crossingId) }
+
+    init(crossingId: String = "osh_dachauer") {
+        self.crossingId         = crossingId
+        let kClose   = key("closingOffsetAdjustment", crossing: crossingId)
+        let kOpen    = key("openingDelayAdjustment",  crossing: crossingId)
+        let kCount   = key("feedbackCount",           crossing: crossingId)
+        let kStep    = key("feedbackStepSeconds",     crossing: crossingId)
+        let kMunich  = key("closingOffsetMunich",     crossing: crossingId)
+        let kFreis   = key("closingOffsetFreising",   crossing: crossingId)
+        closingOffsetAdjustment = UserDefaults.standard.double(forKey: kClose)
+        openingDelayAdjustment  = UserDefaults.standard.double(forKey: kOpen)
+        feedbackCount           = UserDefaults.standard.integer(forKey: kCount)
+        closingOffsetToMunich   = UserDefaults.standard.double(forKey: kMunich)
+        closingOffsetToFreising = UserDefaults.standard.double(forKey: kFreis)
+        let stored = UserDefaults.standard.double(forKey: kStep)
         stepSeconds = stored > 0 ? stored : defaultStepSeconds
-        history = Self.loadHistory()
+        history = Self.loadHistory(crossingId: crossingId)
         Task { await loadFromJSONBin() }
     }
 
     // MARK: Öffentliche API
 
-    func totalClosingOffset(base: Double) -> Double {
-        base + closingOffsetAdjustment
+    /// Gesamtoffset = Basis + manuelles Feedback + richtungs-spezifische Auto-Korrektur
+    func totalClosingOffset(base: Double, toMunich: Bool) -> Double {
+        let directionOffset = toMunich ? closingOffsetToMunich : closingOffsetToFreising
+        return base + closingOffsetAdjustment + directionOffset
     }
 
     var totalOpeningDelay: Double {
@@ -137,7 +160,7 @@ final class FeedbackLearner {
         feedbackCount += 1
         addHistory(.tooEarlyRed)
         persistLocal()
-        addVoteToFirebase(closing: delta, opening: nil)
+        addVoteToCloud(closing: delta, opening: nil)
         showMessage("Verstanden – Schranke schließt \(Int(closingOffsetAdjustment))s später als Basis.")
     }
 
@@ -147,7 +170,7 @@ final class FeedbackLearner {
         feedbackCount += 1
         addHistory(.tooLateRed)
         persistLocal()
-        addVoteToFirebase(closing: delta, opening: nil)
+        addVoteToCloud(closing: delta, opening: nil)
         showMessage("Verstanden – Schranke schließt \(Int(closingOffsetAdjustment))s früher als Basis.")
     }
 
@@ -157,7 +180,7 @@ final class FeedbackLearner {
         feedbackCount += 1
         addHistory(.tooEarlyGreen)
         persistLocal()
-        addVoteToFirebase(closing: nil, opening: delta)
+        addVoteToCloud(closing: nil, opening: delta)
         showMessage("Verstanden – Schranke bleibt \(Int(totalOpeningDelay))s nach Zug geschlossen.")
     }
 
@@ -167,7 +190,7 @@ final class FeedbackLearner {
         feedbackCount += 1
         addHistory(.tooLateGreen)
         persistLocal()
-        addVoteToFirebase(closing: nil, opening: delta)
+        addVoteToCloud(closing: nil, opening: delta)
         showMessage("Verstanden – Schranke öffnet \(Int(totalOpeningDelay))s nach Zug.")
     }
 
@@ -187,13 +210,15 @@ final class FeedbackLearner {
         history.removeAll { $0.id == entry.id }
         persistLocal()
         saveHistory()
-        showMessage("Rückgängig gemacht – auch aus Firebase entfernt.")
+        showMessage("Rückgängig gemacht – auch aus Cloud entfernt.")
     }
 
     /// Alles zurücksetzen inkl. Cloud (für kompletten Reset)
     func resetLearning() {
         closingOffsetAdjustment = 0
         openingDelayAdjustment  = 0
+        closingOffsetToMunich   = 0
+        closingOffsetToFreising = 0
         feedbackCount           = 0
         history.removeAll()
         persistLocal()
@@ -206,6 +231,8 @@ final class FeedbackLearner {
     func resetLocalLearning() {
         closingOffsetAdjustment = 0
         openingDelayAdjustment  = 0
+        closingOffsetToMunich   = 0
+        closingOffsetToFreising = 0
         feedbackCount           = 0
         history.removeAll()
         persistLocal()
@@ -215,14 +242,26 @@ final class FeedbackLearner {
 
     // MARK: Automatisches Lernen aus Schranken-Modus
 
-    /// Korrigiert den Schließzeitpunkt automatisch — gibt den Firebase-Vote-Wert zurück
+    /// Korrigiert den Schließzeitpunkt richtungs-spezifisch — gibt den Vote-Wert zurück
     @discardableResult
-    func applyAutoClosingCorrection(_ delta: Double) -> Double {
+    func applyAutoClosingCorrection(_ delta: Double, toMunich: Bool) -> Double {
         let correction = delta * 0.3
-        closingOffsetAdjustment = (closingOffsetAdjustment + correction).clamped(to: minClosing...maxClosing)
+        if toMunich {
+            closingOffsetToMunich = (closingOffsetToMunich + correction).clamped(to: minClosing...maxClosing)
+        } else {
+            closingOffsetToFreising = (closingOffsetToFreising + correction).clamped(to: minClosing...maxClosing)
+        }
         feedbackCount += 1
         persistLocal()
-        addVoteToFirebase(closing: correction, opening: nil)
+        // Richtungs-spezifisch in Cloud speichern
+        Task {
+            await jsonBin.submitVote(
+                crossingId: crossingId,
+                closingDelta: nil, openingDelta: nil,
+                closingMunich:   toMunich ? correction : nil,
+                closingFreising: toMunich ? nil : correction
+            )
+        }
         return correction
     }
 
@@ -233,8 +272,27 @@ final class FeedbackLearner {
         openingDelayAdjustment = (openingDelayAdjustment + correction).clamped(to: minOpening...maxOpening)
         feedbackCount += 1
         persistLocal()
-        addVoteToFirebase(closing: nil, opening: correction)
+        addVoteToCloud(closing: nil, opening: correction)
         return correction
+    }
+
+    /// Richtungs-spezifische Auto-Korrektur rückgängig machen (beim Löschen eines Records)
+    func revertAutoClosingCorrection(_ vote: Double, toMunich: Bool) {
+        if toMunich {
+            closingOffsetToMunich = (closingOffsetToMunich - vote).clamped(to: minClosing...maxClosing)
+        } else {
+            closingOffsetToFreising = (closingOffsetToFreising - vote).clamped(to: minClosing...maxClosing)
+        }
+        feedbackCount = max(0, feedbackCount - 1)
+        persistLocal()
+        Task {
+            await jsonBin.submitVote(
+                crossingId: crossingId,
+                closingDelta: nil, openingDelta: nil,
+                closingMunich:   toMunich ? -vote : nil,
+                closingFreising: toMunich ? nil : -vote
+            )
+        }
     }
 
     var closingOffsetAdjustmentPublic: Double {
@@ -272,44 +330,41 @@ final class FeedbackLearner {
         UserDefaults.standard.set(closingOffsetAdjustment, forKey: keyClosingOffset)
         UserDefaults.standard.set(openingDelayAdjustment,  forKey: keyOpeningDelay)
         UserDefaults.standard.set(feedbackCount,           forKey: keyFeedbackCount)
+        UserDefaults.standard.set(closingOffsetToMunich,   forKey: keyClosingMunich)
+        UserDefaults.standard.set(closingOffsetToFreising, forKey: keyClosingFreising)
     }
 
-    // MARK: JSONBin — Option 2 (Median) + Option 3 (Undo-Sync)
+    // MARK: JSONBin — User-Median Aggregation
 
-    private func addVoteToFirebase(closing: Double?, opening: Double?) {
-        if let c = closing { closingVotesCache.append(c) }
-        if let o = opening { openingVotesCache.append(o) }
-        Task { await jsonBin.saveVotes(closingVotes: closingVotesCache, openingVotes: openingVotesCache) }
+    private func addVoteToCloud(closing: Double?, opening: Double?) {
+        Task { await jsonBin.submitVote(crossingId: crossingId, closingDelta: closing, openingDelta: opening) }
     }
 
     func removeVoteFromFirebasePublic(closing: Double?, opening: Double?) {
-        if let c = closing { closingVotesCache.removeAll { $0 == c } }
-        if let o = opening { openingVotesCache.removeAll { $0 == o } }
-        Task { await jsonBin.saveVotes(closingVotes: closingVotesCache, openingVotes: openingVotesCache) }
+        // Bei Undo: negativen Wert senden um den Effekt umzukehren
+        Task {
+            await jsonBin.submitVote(
+                crossingId: crossingId,
+                closingDelta: closing.map { -$0 },
+                openingDelta: opening.map { -$0 }
+            )
+        }
     }
 
     private func loadFromJSONBin() async {
-        let (closingVotes, openingVotes) = await jsonBin.loadVotes()
+        let result = await jsonBin.loadAggregated(crossingId: crossingId)
         await MainActor.run {
-            self.closingVotesCache = closingVotes
-            self.openingVotesCache = openingVotes
-            self.isCloudConnected  = true
-            if !closingVotes.isEmpty {
-                self.closingOffsetAdjustment = Self.median(of: closingVotes).clamped(to: minClosing...maxClosing)
-            }
-            if !openingVotes.isEmpty {
-                self.openingDelayAdjustment = Self.median(of: openingVotes).clamped(to: minOpening...maxOpening)
-            }
-            let total = closingVotes.count + openingVotes.count
-            if total > self.feedbackCount { self.feedbackCount = total }
+            self.isCloudConnected = true
+            if result.closing  != 0 { self.closingOffsetAdjustment = result.closing.clamped(to: minClosing...maxClosing) }
+            if result.opening  != 0 { self.openingDelayAdjustment  = result.opening.clamped(to: minOpening...maxOpening) }
+            if result.munich   != 0 { self.closingOffsetToMunich   = result.munich.clamped(to: minClosing...maxClosing) }
+            if result.freising != 0 { self.closingOffsetToFreising = result.freising.clamped(to: minClosing...maxClosing) }
             self.persistLocal()
         }
     }
 
     private func resetFirebase() {
-        closingVotesCache = []
-        openingVotesCache = []
-        Task { await jsonBin.saveVotes(closingVotes: [], openingVotes: []) }
+        Task { await jsonBin.resetUserVotes() }
     }
 
     /// Median-Berechnung
@@ -329,8 +384,9 @@ final class FeedbackLearner {
         }
     }
 
-    private static func loadHistory() -> [FeedbackEntry] {
-        guard let data = UserDefaults.standard.data(forKey: keyHistory),
+    private static func loadHistory(crossingId: String) -> [FeedbackEntry] {
+        let k = key("feedbackHistory", crossing: crossingId)
+        guard let data = UserDefaults.standard.data(forKey: k),
               let decoded = try? JSONDecoder().decode([FeedbackEntry].self, from: data)
         else { return [] }
         return decoded

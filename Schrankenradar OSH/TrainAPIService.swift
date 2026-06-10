@@ -1,92 +1,194 @@
 import Foundation
 
-// MARK: - Zugangsdaten
+// MARK: - Zugangsdaten DB Timetables
 
 private let dbClientId = "bb2d56302fc6faac8ac204a28a58beda"
 private let dbApiKey   = "e77347cdd2f22d6f600a4df38271f4af"
-private let stationEVA = "8004158"
 private let dbBase     = "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1"
 
-// MARK: - Haupt-Service
+// MARK: - TrainAPIService
 
 struct TrainAPIService {
-    private let transportRest = TransportRestService()
 
-    func fetchDepartures() async throws -> [TrainEntry] {
-        let now  = Date()
-        let next = now.addingTimeInterval(3600)
+    /// Holt Abfahrten für den gewählten Bahnübergang.
+    ///
+    /// Quellen und Merge-Strategie:
+    ///   1. DB Timetables API  → Fahrplan-Basis (90-Minuten-Fenster)
+    ///   2. DB Realtime Changes API → offizielle Verspätung (in DB-Daten enthalten)
+    ///   3. Geops stopsequence → Live-Abfahrtszeiten pro Haltestelle (haben immer Priorität)
+    ///   4. Geops trajectory   → Delay-Fallback für Züge ohne stopsequence-Match
+    ///   5. Züge die Geops kennt, DB aber nicht → werden als synthetische TrainEntry hinzugefügt
+    func fetchDepartures(crossing: CrossingLocation) async throws -> [TrainEntry] {
+        let now   = Date()
+        let plus1 = now.addingTimeInterval(3600)
+        let plus2 = now.addingTimeInterval(5400)  // +90 Min
 
-        async let batch1   = fetchPlan(for: now)
-        async let batch2   = fetchPlan(for: next)
-        async let changes  = fetchChanges()
-        async let restData = transportRest.fetchDepartureData()
+        // 1 + 2: DB-Daten parallel laden (aktuelle Stunde + nächste Stunde + übernächste)
+        async let batch1  = fetchPlan(for: now,   eva: crossing.stationEVA)
+        async let batch2  = fetchPlan(for: plus1, eva: crossing.stationEVA)
+        async let batch3  = fetchPlan(for: plus2, eva: crossing.stationEVA)
+        async let changes = fetchChanges(eva: crossing.stationEVA)
 
-        let (stops1, stops2, changeMap, restMap) =
-            try await (batch1, batch2, changes, restData)
+        let (stops1, stops2, stops3, changeMap) = try await (batch1, batch2, batch3, changes)
 
-        var seen = Set<String>()
-        let allStops = (stops1 + stops2).filter { seen.insert($0.id).inserted }
+        var seenDB = Set<String>()
+        let allStops = (stops1 + stops2 + stops3).filter { seenDB.insert($0.id).inserted }
 
-        var entries = allStops.compactMap { stop -> TrainEntry? in
+        // DB-Entries mit Change-Daten anreichern
+        var dbEntries: [TrainEntry] = allStops.compactMap { stop -> TrainEntry? in
             var enriched = stop
             if let change = changeMap[stop.id] { enriched.applyChange(change) }
-            return TrainEntry(from: enriched, restMap: restMap)
+            return TrainEntry(from: enriched, onlyS1: crossing.onlyS1)
         }
 
-        // Für Züge in den nächsten 15 Minuten: letzten Halt vor OSH prüfen
-        let toRefine = entries
-            .filter {
-                let t = $0.actualTime.timeIntervalSinceNow
-                return t > -120 && t < 900
-            }
-            .compactMap { entry -> (String, String)? in
-                guard let info = restMap[entry.scheduledTime.roundedToMinute] else { return nil }
-                return (entry.id, info.tripId)
-            }
+        // 90-Min-Filter anwenden
+        dbEntries = dbEntries.filter { $0.actualTime <= now.addingTimeInterval(5400) }
 
-        if !toRefine.isEmpty {
-            let refined = await withTaskGroup(of: (String, Date?).self) { group -> [String: Date] in
-                for (entryId, tripId) in toRefine {
-                    group.addTask {
-                        let t = await self.transportRest.fetchEstimatedOSHTime(tripId: tripId)
-                        return (entryId, t)
-                    }
-                }
-                var result: [String: Date] = [:]
-                for await (id, time) in group {
-                    if let t = time { result[id] = t }
-                }
-                return result
-            }
-
-            entries = entries.map { entry in
-                guard let refined = refined[entry.id] else { return entry }
-                // Nur übernehmen wenn Abweichung > 30 Sekunden (Messrauschen vermeiden)
-                guard abs(refined.timeIntervalSince(entry.actualTime)) > 30 else { return entry }
-                return entry.with(actualTime: refined)
-            }
+        // Geops-bestätigte Linien filtern:
+        // Sobald Geops mindestens eine Linie für diese Schranke gesehen hat,
+        // nur noch bestätigte Linien zeigen. Vorher: alles anzeigen.
+        if let confirmed = crossing.confirmedLines, !confirmed.isEmpty {
+            let confirmedSet = Set(confirmed)
+            dbEntries = dbEntries.filter { confirmedSet.contains($0.lineName) }
         }
 
-        return entries
+        // 3 + 4 + 5: Geops-Daten holen (MainActor)
+        let (geopsStops, geopsVehicles) = await MainActor.run {
+            (GeopsRealtimeService.shared.departures(forEva: crossing.stationEVA),
+             GeopsRealtimeService.shared.vehicles)
+        }
+
+        // Merge
+        var entries = merge(
+            dbEntries: dbEntries,
+            geopsStops: geopsStops,
+            geopsVehicles: geopsVehicles,
+            crossing: crossing
+        )
+
+        return entries.sorted { $0.actualTime < $1.actualTime }
     }
 
-    // MARK: Plan
+    // MARK: - Merge-Logik
 
-    private func fetchPlan(for date: Date) async throws -> [TimetableStop] {
-        let url = URL(string: "\(dbBase)/plan/\(stationEVA)/\(date.yyMMdd)/\(date.HH)")!
+    private func merge(dbEntries: [TrainEntry],
+                       geopsStops: [GeopsStopDeparture],
+                       geopsVehicles: [String: GeopsVehicle],
+                       crossing: CrossingLocation) -> [TrainEntry] {
+
+        var result: [TrainEntry] = []
+        var matchedGeopsIds = Set<String>()
+
+        // Schritt 1+2: DB-Einträge als Basis, Geops-Zeiten haben Priorität
+        for dbEntry in dbEntries {
+            if let geopsStop = bestGeopsMatch(for: dbEntry, in: geopsStops) {
+                // Geops-Zeit übernehmen
+                matchedGeopsIds.insert(geopsStop.tripId)
+                let actualTime = geopsStop.actualDeparture
+                let updated = dbEntry.with(actualTime: actualTime)
+                result.append(updated)
+            } else {
+                // Kein Geops-stopsequence-Match: trajectory-Delay als Fallback
+                var entry = dbEntry
+                if let trajDelay = bestTrajectoryDelay(for: dbEntry,
+                                                        vehicles: geopsVehicles) {
+                    // Nur wenn trajectory mehr Delay zeigt als DB
+                    if trajDelay > dbEntry.delayMinutes * 60, trajDelay <= 1800 {
+                        let newTime = dbEntry.scheduledTime.addingTimeInterval(Double(trajDelay))
+                        entry = dbEntry.with(actualTime: newTime)
+                    }
+                }
+                result.append(entry)
+            }
+        }
+
+        // Schritt 3: Geops-Züge ohne DB-Match → synthetische TrainEntry
+        let now = Date()
+        for geopsStop in geopsStops where !matchedGeopsIds.contains(geopsStop.tripId) {
+            // Nur Einträge in den nächsten 90 Minuten
+            guard geopsStop.actualDeparture >= now,
+                  geopsStop.actualDeparture <= now.addingTimeInterval(5400) else { continue }
+
+            // Richtung aus vehicles ableiten falls verfügbar
+            let direction = geopsVehicles[geopsStop.tripId]?.computedDirection()
+                         ?? geopsStop.inferredDirection
+                         ?? .toMunich
+
+            let synthetic = TrainEntry(fromGeopsStop: geopsStop, direction: direction)
+            result.append(synthetic)
+#if DEBUG
+            print("[Geops] Synthetischer Eintrag: \(geopsStop.lineName) " +
+                  "tripId=\(geopsStop.tripId) actual=\(geopsStop.actualDeparture)")
+#endif
+        }
+
+        return result
+    }
+
+    /// Sucht den besten Geops-stopDeparture für einen DB-TrainEntry.
+    /// Priorität: gleiche Linie + enge Zeitübereinstimmung > nur Zeit.
+    private func bestGeopsMatch(for entry: TrainEntry,
+                                 in stops: [GeopsStopDeparture]) -> GeopsStopDeparture? {
+        let tightTol: TimeInterval = 60    // 1 Minute (gleiche Linie)
+        let wideTol:  TimeInterval = 120   // 2 Minuten (Fallback)
+
+        // 1. Gleiche Linie + enge Zeit
+        if let exact = stops.first(where: {
+            $0.lineName == entry.lineName &&
+            abs($0.plannedDeparture.timeIntervalSince(entry.scheduledTime)) < tightTol
+        }) { return exact }
+
+        // 2. Gleiche Linie + weite Zeit
+        if let loose = stops.first(where: {
+            $0.lineName == entry.lineName &&
+            abs($0.plannedDeparture.timeIntervalSince(entry.scheduledTime)) < wideTol
+        }) { return loose }
+
+        // 3. Nur Zeit (Fallback wenn Linie unbekannt)
+        return stops.first {
+            abs($0.plannedDeparture.timeIntervalSince(entry.scheduledTime)) < tightTol
+        }
+    }
+
+    /// Bester Trajectory-Delay für einen DB-TrainEntry aus den Live-Vehicles.
+    /// Bevorzugt Fahrzeuge der gleichen Linie in der richtigen Fahrtrichtung.
+    private func bestTrajectoryDelay(for entry: TrainEntry,
+                                     vehicles: [String: GeopsVehicle]) -> Int? {
+        let now = Date()
+        guard abs(entry.actualTime.timeIntervalSince(now)) < 900 else { return nil }
+
+        let fresh = vehicles.values.filter { now.timeIntervalSince($0.updatedAt) < 180 }
+        guard !fresh.isEmpty else { return nil }
+
+        // Gleiche Linie + gleiche Richtung → höchste Konfidenz
+        let byLineDir = fresh.filter {
+            $0.lineName == entry.lineName && $0.computedDirection() == entry.direction
+        }
+        if let best = byLineDir.max(by: { $0.updatedAt < $1.updatedAt }) {
+            return best.delaySec
+        }
+
+        // Nur Richtung
+        let byDir = fresh.filter { $0.computedDirection() == entry.direction }
+        let pool  = byDir.isEmpty ? Array(fresh) : byDir
+        return pool.max(by: { $0.updatedAt < $1.updatedAt })?.delaySec
+    }
+
+    // MARK: - DB API
+
+    private func fetchPlan(for date: Date, eva: String) async throws -> [TimetableStop] {
+        let url = URL(string: "\(dbBase)/plan/\(eva)/\(date.yyMMdd)/\(date.HH)")!
         let data = try await dbRequest(url)
         return TimetableXMLParser.parse(data: data)
     }
 
-    // MARK: Echtzeit-Änderungen
-
-    private func fetchChanges() async throws -> [String: ChangeInfo] {
-        let url = URL(string: "\(dbBase)/rchg/\(stationEVA)")!
+    private func fetchChanges(eva: String) async throws -> [String: ChangeInfo] {
+        let url = URL(string: "\(dbBase)/rchg/\(eva)")!
         let data = try await dbRequest(url)
         return ChangesXMLParser.parse(data: data)
     }
 
-    // MARK: HTTP
+    // MARK: - HTTP
 
     private func dbRequest(_ url: URL) async throws -> Data {
         var request = URLRequest(url: url)
@@ -99,91 +201,6 @@ struct TrainAPIService {
             throw APIError.httpError(code)
         }
         return data
-    }
-}
-
-// MARK: - Transport REST (DB Echtzeit + Trip-Analyse)
-
-struct DepartureInfo {
-    let delay: Int      // Minuten
-    let tripId: String
-}
-
-struct TransportRestService {
-    private let stopId  = "8004158"
-    private let baseURL = "https://v6.db.transport.rest"
-
-    /// Abfahrten mit Verspätung und TripId — geplante Zeit (auf Minute) als Key
-    func fetchDepartureData() async -> [Date: DepartureInfo] {
-        guard let url = URL(string: "\(baseURL)/stops/\(stopId)/departures?duration=120&results=100") else { return [:] }
-        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return [:] }
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let deps = json["departures"] as? [[String: Any]] else { return [:] }
-
-        var result: [Date: DepartureInfo] = [:]
-        for dep in deps {
-            guard let plannedStr = dep["plannedWhen"] as? String,
-                  let planned    = Date.fromISO8601(plannedStr),
-                  let tripId     = dep["tripId"] as? String else { continue }
-            let delaySec = dep["delay"] as? Int ?? 0
-            let key      = planned.roundedToMinute
-            let existing = result[key]
-            if existing == nil || delaySec > existing!.delay * 60 {
-                result[key] = DepartureInfo(delay: delaySec / 60, tripId: tripId)
-            }
-        }
-        return result
-    }
-
-    /// Gibt die geschätzte Abfahrtszeit des Zugs an Oberschleißheim zurück,
-    /// berechnet aus dem letzten bekannten Ist-Halt davor.
-    func fetchEstimatedOSHTime(tripId: String) async -> Date? {
-        let encoded = tripId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? tripId
-        guard let url = URL(string: "\(baseURL)/trips/\(encoded)?stopovers=true&polyline=false") else { return nil }
-        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-
-        // Response kann "trip" als Key haben oder direkt das Objekt sein
-        let root = (json["trip"] as? [String: Any]) ?? json
-        guard let stopovers = root["stopovers"] as? [[String: Any]] else { return nil }
-
-        // Oberschleißheim im Trip finden
-        guard let oshIdx = stopovers.firstIndex(where: { stop in
-            guard let s = stop["stop"] as? [String: Any] else { return false }
-            let name = (s["name"] as? String ?? "").lowercased()
-            let id   = s["id"] as? String ?? ""
-            return name.contains("oberschlei") || id == stationEVA
-        }) else { return nil }
-
-        let oshStop = stopovers[oshIdx]
-
-        // Fall 1: OSH hat bereits eine Ist-Abfahrtszeit → direkt verwenden
-        let oshActualStr = oshStop["departure"] as? String ?? oshStop["when"] as? String
-        if let str = oshActualStr, let actual = Date.fromISO8601(str), actual > Date() {
-            return actual
-        }
-
-        // Fall 2: letzten Halt vor OSH mit Ist-Zeit suchen
-        for i in stride(from: oshIdx - 1, through: 0, by: -1) {
-            let prev = stopovers[i]
-            guard let prevPlannedStr = prev["plannedDeparture"] as? String ?? prev["plannedWhen"] as? String,
-                  let prevPlanned    = Date.fromISO8601(prevPlannedStr) else { continue }
-
-            // Nur Halte die der Zug bereits verlassen hat
-            let prevActualStr = prev["departure"] as? String ?? prev["when"] as? String
-            guard let prevActual = prevActualStr.flatMap({ Date.fromISO8601($0) }),
-                  prevActual <= Date() else { continue }
-
-            let delayAtPrev = prevActual.timeIntervalSince(prevPlanned)
-
-            // OSH geplante Abfahrtszeit + Verzögerung vom letzten bekannten Halt
-            guard let oshPlannedStr = oshStop["plannedDeparture"] as? String ?? oshStop["plannedWhen"] as? String,
-                  let oshPlanned    = Date.fromISO8601(oshPlannedStr) else { return nil }
-
-            return oshPlanned.addingTimeInterval(delayAtPrev)
-        }
-
-        return nil
     }
 }
 
@@ -300,7 +317,6 @@ struct TrainEntry: Identifiable {
     let platform: String?
     let stopsAtStation: Bool
 
-    /// Gibt eine Kopie mit aktualisierter Ist-Zeit zurück (für Trip-Verfeinerung)
     func with(actualTime newTime: Date) -> TrainEntry {
         TrainEntry(
             id: id, lineName: lineName, direction: direction,
@@ -310,6 +326,7 @@ struct TrainEntry: Identifiable {
         )
     }
 
+    // Designated init (privat, alle Felder)
     private init(id: String, lineName: String, direction: TrainDirection,
                  scheduledTime: Date, actualTime: Date, delayMinutes: Int,
                  isCancelled: Bool, platform: String?, stopsAtStation: Bool) {
@@ -319,20 +336,26 @@ struct TrainEntry: Identifiable {
         self.platform = platform; self.stopsAtStation = stopsAtStation
     }
 
-    init?(from stop: TimetableStop, restMap: [Date: DepartureInfo]) {
+    /// Erstellt einen TrainEntry aus einem TimetableStop (DB-Quelle).
+    /// Verspätung kommt aus der DB Realtime Changes API.
+    /// Geops-Verfeinerung passiert nachgelagert in fetchDepartures().
+    init?(from stop: TimetableStop, onlyS1: Bool = true) {
         guard let dp = stop.dp,
               let pt = dp.pt,
               let planned = DateFormatter.dbTime.date(from: pt) else { return nil }
 
         let lineRaw = dp.line ?? stop.trainNumber ?? ""
 
-        let blockedSBahnen: Set<String> = ["2", "3", "4", "5", "6", "7", "8", "20",
-                                           "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S20"]
-        guard !blockedSBahnen.contains(lineRaw) else { return nil }
+        // RB, RE, IC fahren nicht an diesen Übergängen vorbei
+        guard !lineRaw.hasPrefix("RB"),
+              !lineRaw.hasPrefix("RE"),
+              !lineRaw.hasPrefix("IC") else { return nil }
 
-        // RB und RE fahren nicht durch Oberschleißheim → herausfiltern
-        guard !lineRaw.hasPrefix("RB") && !lineRaw.hasPrefix("RE") && !lineRaw.hasPrefix("IC") else {
-            return nil
+        // Bei onlyS1: andere S-Bahn-Linien filtern
+        if onlyS1 {
+            let blocked: Set<String> = ["2","3","4","5","6","7","8","20",
+                                        "S2","S3","S4","S5","S6","S7","S8","S20"]
+            guard !blocked.contains(lineRaw) else { return nil }
         }
 
         let lineName: String
@@ -344,21 +367,14 @@ struct TrainEntry: Identifiable {
             lineName = lineRaw.hasPrefix("S") ? lineRaw : "S\(lineRaw)"
         }
 
-        let dbActual  = stop.actualDepartureTime ?? planned
-        let dbDelay   = max(0, Int(dbActual.timeIntervalSince(planned) / 60))
-
-        // Verspätung aus transport.rest mergen — nur wenn plausibel
-        // Max 10 min mehr als DB-Wert und insgesamt max 30 min → verhindert falsche Daten
-        let restDelay     = restMap[planned.roundedToMinute]?.delay ?? 0
-        let restPlausibel = restDelay <= dbDelay + 10 && restDelay <= 30
-        let bestDelay     = restPlausibel ? max(dbDelay, restDelay) : dbDelay
-        let actual    = planned.addingTimeInterval(Double(bestDelay) * 60)
+        let actual  = stop.actualDepartureTime ?? planned
+        let dbDelay = max(0, Int(actual.timeIntervalSince(planned) / 60))
 
         self.id             = stop.id
         self.lineName       = lineName
         self.scheduledTime  = planned
         self.actualTime     = actual
-        self.delayMinutes   = bestDelay
+        self.delayMinutes   = dbDelay
         self.isCancelled    = stop.isCancelled
         self.platform       = stop.changedPlatform
         self.stopsAtStation = lineName == "S1"
@@ -368,27 +384,38 @@ struct TrainEntry: Identifiable {
         )
     }
 
-    private static func detectDirection(departurePath: String, arrivalPath: String) -> TrainDirection {
+    /// Erstellt einen synthetischen TrainEntry aus einem Geops-StopDeparture.
+    /// Wird für Züge verwendet, die Geops kennt, DB aber nicht (im 90-Min-Fenster).
+    init(fromGeopsStop stop: GeopsStopDeparture, direction: TrainDirection) {
+        self.id             = "geops_\(stop.tripId)"
+        self.lineName       = stop.lineName
+        self.direction      = direction
+        self.scheduledTime  = stop.plannedDeparture
+        self.actualTime     = stop.actualDeparture
+        self.delayMinutes   = max(0, Int(stop.actualDeparture.timeIntervalSince(stop.plannedDeparture) / 60))
+        self.isCancelled    = false
+        self.platform       = nil
+        self.stopsAtStation = stop.lineName == "S1"
+    }
+
+    private static func detectDirection(departurePath: String,
+                                        arrivalPath: String) -> TrainDirection {
         let freisungKeywords = ["freising", "flughafen", "neufahrn", "pulling", "eching",
                                 "lohhof", "unterschlei", "hallbergmoos"]
         let munichKeywords   = ["feldmoching", "münchen", "ostbahnhof", "laim", "pasing",
                                 "moosach", "petershausen", "dachau", "karlsfeld"]
 
-        // 1. Abfahrtspfad: wo fährt der Zug NACH OSH hin?
         let depStops = departurePath.lowercased().components(separatedBy: "|")
         if depStops.contains(where: { s in freisungKeywords.contains { s.contains($0) } }) { return .toFreising }
         if depStops.contains(where: { s in munichKeywords.contains   { s.contains($0) } }) { return .toMunich }
 
-        // 2. Ankunftspfad: woher kam der Zug VOR OSH? (umgekehrte Logik)
         if !arrivalPath.isEmpty {
             let arrStops = arrivalPath.lowercased().components(separatedBy: "|")
-            // Kam von München → fährt nach Freising
             if arrStops.contains(where: { s in munichKeywords.contains   { s.contains($0) } }) { return .toFreising }
-            // Kam von Freising → fährt nach München
             if arrStops.contains(where: { s in freisungKeywords.contains { s.contains($0) } }) { return .toMunich }
         }
 
-        return .toMunich  // Fallback
+        return .toMunich
     }
 }
 
@@ -398,9 +425,9 @@ enum APIError: LocalizedError {
     case httpError(Int)
     var errorDescription: String? {
         switch self {
-        case .httpError(401): "Ungültige API-Keys."
-        case .httpError(403): "Kein Zugriff – Timetables API abonniert?"
-        case .httpError(let c): "API-Fehler (HTTP \(c))."
+        case .httpError(401): "Ungültige DB API-Keys."
+        case .httpError(403): "Kein Zugriff – DB Timetables API abonniert?"
+        case .httpError(let c): "DB API-Fehler (HTTP \(c))."
         }
     }
 }
@@ -419,11 +446,16 @@ extension Date {
     }
 
     static func fromISO8601(_ string: String) -> Date? {
-        let f1 = ISO8601DateFormatter()
-        f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = f1.date(from: string) { return d }
-        return ISO8601DateFormatter().date(from: string)
+        if let d = _iso8601WithFractional.date(from: string) { return d }
+        return _iso8601Standard.date(from: string)
     }
+
+    private static let _iso8601WithFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let _iso8601Standard = ISO8601DateFormatter()
 }
 
 extension DateFormatter {

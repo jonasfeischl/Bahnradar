@@ -18,7 +18,7 @@ struct CrossingLiveActivity: Widget {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(context.state.trainLine)
                                 .font(.caption).bold()
-                            Text("→ \(context.state.trainDirection)")
+                            Text(context.state.trainDirection)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -31,25 +31,37 @@ struct CrossingLiveActivity: Widget {
                             Text("Öffnet in")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
-                            Text(context.state.openingTime, style: .timer)
-                                .font(.caption).bold()
-                                .foregroundStyle(.green)
-                                .monospacedDigit()
+                            if context.state.openingTime > Date() {
+                                Text(timerInterval: Date.now...context.state.openingTime, countsDown: true)
+                                    .font(.caption).bold()
+                                    .foregroundStyle(.green)
+                                    .monospacedDigit()
+                            } else {
+                                Text("gleich")
+                                    .font(.caption).bold()
+                                    .foregroundStyle(.green)
+                            }
                         } else {
                             Text("Rot in")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
-                            Text(context.state.closingTime, style: .timer)
-                                .font(.caption).bold()
-                                .foregroundStyle(.red)
-                                .monospacedDigit()
+                            if context.state.closingTime > Date() {
+                                Text(timerInterval: Date.now...context.state.closingTime, countsDown: true)
+                                    .font(.caption).bold()
+                                    .foregroundStyle(.red)
+                                    .monospacedDigit()
+                            } else {
+                                Text("gleich")
+                                    .font(.caption).bold()
+                                    .foregroundStyle(.red)
+                            }
                         }
                     }
                     .padding(.trailing, 4)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack {
-                        Text("Bahnübergang Dachauer Str.")
+                        Text(context.attributes.crossingName)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -60,20 +72,38 @@ struct CrossingLiveActivity: Widget {
                     .padding(.horizontal, 4)
                 }
             } compactLeading: {
-                StatusDot(statusRaw: context.state.statusRaw, size: 10)
+                HStack(spacing: 4) {
+                    StatusDot(statusRaw: context.state.statusRaw, size: 8)
+                    Text(context.state.statusLabel)
+                        .font(.caption2).bold()
+                        .foregroundStyle(statusColor(context.state.statusRaw))
+                        .lineLimit(1)
+                }
             } compactTrailing: {
                 if context.state.statusRaw == "closed" || context.state.statusRaw == "opening" {
-                    Text(context.state.openingTime, style: .timer)
-                        .font(.caption2).bold()
-                        .foregroundStyle(.green)
-                        .monospacedDigit()
-                        .frame(minWidth: 36)
+                    if context.state.openingTime > Date() {
+                        Text(timerInterval: Date.now...context.state.openingTime, countsDown: true)
+                            .font(.caption2).bold()
+                            .foregroundStyle(.green)
+                            .monospacedDigit()
+                            .frame(minWidth: 36)
+                    } else {
+                        Text("gleich")
+                            .font(.caption2).bold()
+                            .foregroundStyle(.green)
+                    }
                 } else {
-                    Text(context.state.closingTime, style: .timer)
-                        .font(.caption2).bold()
-                        .foregroundStyle(.red)
-                        .monospacedDigit()
-                        .frame(minWidth: 36)
+                    if context.state.closingTime > Date() {
+                        Text(timerInterval: Date.now...context.state.closingTime, countsDown: true)
+                            .font(.caption2).bold()
+                            .foregroundStyle(.red)
+                            .monospacedDigit()
+                            .frame(minWidth: 36)
+                    } else {
+                        Text("gleich")
+                            .font(.caption2).bold()
+                            .foregroundStyle(.red)
+                    }
                 }
             } minimal: {
                 StatusDot(statusRaw: context.state.statusRaw, size: 12)
@@ -110,7 +140,7 @@ struct LockScreenLiveActivityView: View {
 
             // Mitte: Info
             VStack(alignment: .leading, spacing: 6) {
-                Text("Bahnübergang Dachauer Str.")
+                Text(context.attributes.crossingName)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
@@ -120,7 +150,7 @@ struct LockScreenLiveActivityView: View {
 
                 HStack(spacing: 4) {
                     Text(context.state.trainLine).bold()
-                    Text("→ \(context.state.trainDirection)")
+                    Text(context.state.trainDirection)
                         .foregroundStyle(.secondary)
                 }
                 .font(.caption)
@@ -134,18 +164,30 @@ struct LockScreenLiveActivityView: View {
                     Text("Öffnet in")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                    Text(context.state.openingTime, style: .timer)
-                        .font(.title3.bold())
-                        .foregroundStyle(.green)
-                        .monospacedDigit()
+                    if context.state.openingTime > Date() {
+                        Text(timerInterval: Date.now...context.state.openingTime, countsDown: true)
+                            .font(.title3.bold())
+                            .foregroundStyle(.green)
+                            .monospacedDigit()
+                    } else {
+                        Text("gleich")
+                            .font(.title3.bold())
+                            .foregroundStyle(.green)
+                    }
                 } else {
                     Text("Rot in")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                    Text(context.state.closingTime, style: .timer)
-                        .font(.title3.bold())
-                        .foregroundStyle(.red)
-                        .monospacedDigit()
+                    if context.state.closingTime > Date() {
+                        Text(timerInterval: Date.now...context.state.closingTime, countsDown: true)
+                            .font(.title3.bold())
+                            .foregroundStyle(.red)
+                            .monospacedDigit()
+                    } else {
+                        Text("gleich")
+                            .font(.title3.bold())
+                            .foregroundStyle(.red)
+                    }
                 }
             }
         }
