@@ -94,8 +94,8 @@ struct CrossingEvent: Identifiable {
 
     func status(at date: Date) -> CrossingStatus {
         let minutes = minutesUntil(from: date)
-        if minutes > 3.5                         { return .open }
-        if minutes > 2.5                         { return .warning }
+        if minutes > 2.5                         { return .open }
+        if minutes > 1.5                         { return .warning }
         if minutes > -openingDelayMinutes        { return .closed }
         if minutes > -openingDelayMinutes - 0.17 { return .opening }
         return .open

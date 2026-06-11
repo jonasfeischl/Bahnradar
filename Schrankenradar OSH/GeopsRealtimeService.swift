@@ -3,6 +3,12 @@ import SwiftUI
 
 // MARK: - Geops Vehicle (trajectory-Kanal)
 
+struct GeopsTrajectoryData {
+    let rawCoords: [[Double]]      // EPSG:3857 Koordinaten
+    let timeIntervals: [[Any]]     // [[timestamp_ms, stop_index, null], ...]
+    let capturedAt: Date
+}
+
 struct GeopsVehicle {
     let tripId: String
     let lineName: String
@@ -13,6 +19,7 @@ struct GeopsVehicle {
     let prevLon: Double?
     let updatedAt: Date
     var inferredDirection: TrainDirection?
+    var trajectoryData: GeopsTrajectoryData?
 
     func computedDirection() -> TrainDirection? {
         if let dir = inferredDirection { return dir }
@@ -95,6 +102,10 @@ final class GeopsRealtimeService {
     private(set) var vehicles: [String: GeopsVehicle] = [:]
     private(set) var stopDepartures: [String: [String: GeopsStopDeparture]] = [:]
 
+    /// Geschätzte Durchfahrtszeiten für Nicht-S-Bahn-Züge (Güterzüge, RB, RE…)
+    /// Schlüssel = crossingId, Wert = geschätzte Durchfahrtszeit
+    private(set) var freightApproaches: [String: Date] = [:]
+
     // MARK: Privat
 
     private var wsTask: URLSessionWebSocketTask?
@@ -106,6 +117,7 @@ final class GeopsRealtimeService {
     private var measuredPassages: Set<String> = []
     private var pendingDetections: [PendingDetection] = []
     private var trajectoryUpdateCount = 0
+    private var nonSBahnLastPos: [String: (lat: Double, lon: Double, updatedAt: Date)] = [:]
 
     private let apiKey = "5cc87b12d7c5370001c1d655e67b22d1967d4799a6d23b1e92b9e24a"
 
@@ -159,6 +171,8 @@ final class GeopsRealtimeService {
         pingTask = nil
         vehicles = [:]
         stopDepartures = [:]
+        freightApproaches = [:]
+        nonSBahnLastPos = [:]
         subscribedTrips = []
         measuredPassages = []
         pendingDetections = []
@@ -255,7 +269,15 @@ final class GeopsRealtimeService {
         // Linienname aus verschachteltem line-Objekt
         let lineObj  = props["line"] as? [String: Any]
         let lineRaw  = lineObj?["name"] as? String ?? ""
-        guard !lineRaw.isEmpty, lineRaw.uppercased().hasPrefix("S") else { return }
+        guard !lineRaw.isEmpty else { return }
+
+        // Nicht-S-Bahn (Güterzug, RB, RE…): nur auf Übergangs-Annäherung prüfen
+        guard lineRaw.uppercased().hasPrefix("S") else {
+            let (cLat, cLon) = currentPosition(rawCoords: rawCoords, timeIntervals: timeIntervals)
+            detectNonSBahnApproach(tripId: tripId, rawCoords: rawCoords,
+                                   timeIntervals: timeIntervals, lat: cLat, lon: cLon)
+            return
+        }
 
         let tripId = props["train_id"] as? String ?? ""
         guard !tripId.isEmpty else { return }
@@ -273,6 +295,11 @@ final class GeopsRealtimeService {
 
         let previous = vehicles[tripId]
 
+        // Trajectory für GPS-basierte Crossing-Zeit-Schätzung speichern
+        let traj: GeopsTrajectoryData? = (!rawCoords.isEmpty && !timeIntervals.isEmpty)
+            ? GeopsTrajectoryData(rawCoords: rawCoords, timeIntervals: timeIntervals, capturedAt: Date())
+            : nil
+
         let vehicle = GeopsVehicle(
             tripId:    tripId,
             lineName:  lineRaw,
@@ -282,7 +309,8 @@ final class GeopsRealtimeService {
             prevLat:   previous?.lat,
             prevLon:   previous?.lon,
             updatedAt: Date(),
-            inferredDirection: nil
+            inferredDirection: nil,
+            trajectoryData: traj
         )
         vehicles[tripId] = vehicle
 
@@ -319,24 +347,11 @@ final class GeopsRealtimeService {
         }
 
         let nowMs = Date().timeIntervalSince1970 * 1000.0
+        let sorted = parseTimeIntervals(timeIntervals)
 
-        // time_intervals: [[timestamp_ms, stop_index, null], ...]
-        var parsed: [(ts: Double, progress: Double)] = []
-        for (i, entry) in timeIntervals.enumerated() {
-            guard let ts = (entry.first as? Double) ?? (entry.first as? Int).map(Double.init)
-            else { continue }
-            // stop_index als Fortschrittsindex: 0 = Start, letzte Gruppe = Ende
-            let maxIdx = max(1, (timeIntervals.compactMap { $0.count > 1 ? $0[1] as? Int : nil }).max() ?? 1)
-            let stopIdx = (entry.count > 1 ? entry[1] as? Int : nil) ?? i
-            let progress = Double(stopIdx) / Double(maxIdx)
-            parsed.append((ts: ts, progress: progress))
-        }
-
-        guard !parsed.isEmpty else {
+        guard !sorted.isEmpty else {
             return mercatorToWGS84(rawCoords[0][0], rawCoords[0][1])
         }
-
-        let sorted = parsed.sorted { $0.ts < $1.ts }
 
         if nowMs <= sorted.first!.ts {
             return mercatorToWGS84(rawCoords[0][0], rawCoords[0][1])
@@ -347,13 +362,19 @@ final class GeopsRealtimeService {
         }
 
         for i in 0..<(sorted.count - 1) {
-            let t1 = sorted[i].ts,   t2 = sorted[i+1].ts
+            let t1 = sorted[i].ts, t2 = sorted[i+1].ts
             let p1 = sorted[i].progress, p2 = sorted[i+1].progress
             guard t1 <= nowMs, nowMs <= t2 else { continue }
-            let frac = (nowMs - t1) / max(1, t2 - t1)
+            let frac     = (nowMs - t1) / max(1, t2 - t1)
             let progress = p1 + frac * (p2 - p1)
-            let idx = min(Int(progress * Double(rawCoords.count - 1)), rawCoords.count - 1)
-            return mercatorToWGS84(rawCoords[idx][0], rawCoords[idx][1])
+            // Sub-Index-Interpolation: zwischen zwei benachbarten Koordinaten interpolieren
+            let fidx = progress * Double(rawCoords.count - 1)
+            let lo   = min(Int(fidx), rawCoords.count - 2)
+            let hi   = lo + 1
+            let t    = fidx - Double(lo)
+            let x    = rawCoords[lo][0] + t * (rawCoords[hi][0] - rawCoords[lo][0])
+            let y    = rawCoords[lo][1] + t * (rawCoords[hi][1] - rawCoords[lo][1])
+            return mercatorToWGS84(x, y)
         }
 
         return mercatorToWGS84(rawCoords[0][0], rawCoords[0][1])
@@ -563,6 +584,174 @@ final class GeopsRealtimeService {
                     "lineName":   d.lineName
                 ]
             )
+        }
+    }
+
+    // MARK: - Trajectory-basierte Crossing-Zeit-Schätzung
+
+    /// Schätzt anhand der gespeicherten Geops-Trajektorie wann der Zug (tripId) den
+    /// Bahnübergang erreicht. Genauer als stationsDeparture + Offset, weil sie die
+    /// tatsächliche Zugposition und -geschwindigkeit berücksichtigt.
+    /// Gibt nil zurück wenn keine Trajektorie vorhanden, zu alt (>60s) oder der Übergang
+    /// nicht auf dem Streckenverlauf liegt (<350m Mindestabstand).
+    func estimatedArrivalAtCrossing(_ crossing: CrossingLocation, for tripId: String) -> Date? {
+        guard let vehicle = vehicles[tripId],
+              let traj = vehicle.trajectoryData,
+              Date().timeIntervalSince(traj.capturedAt) < 60
+        else { return nil }
+
+        // Crossing-Koordinaten: WGS84 → EPSG:3857
+        let crossingX = crossing.longitude * 20037508.34 / 180.0
+        let crossingY = log(tan(.pi / 4 + crossing.latitude * .pi / 360)) * 6378137.0
+
+        return interpolatedTime(
+            targetX: crossingX, targetY: crossingY,
+            rawCoords: traj.rawCoords,
+            timeIntervals: traj.timeIntervals
+        )
+    }
+
+    /// Interpoliert den Zeitstempel für eine Zielposition entlang der Trajektorie.
+    /// Verwendet Segment-Projektion + distanzbasierten Fortschritt statt Vertex-Index,
+    /// was bei unregelmäßig verteilten Punkten deutlich genauer ist.
+    private func interpolatedTime(targetX: Double, targetY: Double,
+                                  rawCoords: [[Double]],
+                                  timeIntervals: [[Any]]) -> Date? {
+        guard rawCoords.count >= 2 else { return nil }
+
+        // Gesamtlänge des Pfades berechnen (Mercator-Koordinaten)
+        var segLengths = [Double]()
+        var totalDist = 0.0
+        for i in 0..<(rawCoords.count - 1) {
+            let dx = rawCoords[i+1][0] - rawCoords[i][0]
+            let dy = rawCoords[i+1][1] - rawCoords[i][1]
+            let l  = sqrt(dx*dx + dy*dy)
+            segLengths.append(l)
+            totalDist += l
+        }
+        guard totalDist > 0 else { return nil }
+
+        // Nächstes Segment-Stück via Projektion finden
+        var bestDist     = Double.infinity
+        var bestProgress = 0.0
+        var cumDist      = 0.0
+
+        for i in 0..<(rawCoords.count - 1) {
+            let ax = rawCoords[i][0],   ay = rawCoords[i][1]
+            let bx = rawCoords[i+1][0], by = rawCoords[i+1][1]
+            let dx = bx - ax, dy = by - ay
+            let segLen = segLengths[i]
+
+            // Projektion des Zielpunkts auf das Segment
+            let t: Double
+            if segLen < 1e-9 {
+                t = 0
+            } else {
+                t = max(0, min(1, ((targetX - ax) * dx + (targetY - ay) * dy) / (segLen * segLen)))
+            }
+
+            let px = ax + t * dx, py = ay + t * dy
+            let d  = sqrt((targetX - px) * (targetX - px) + (targetY - py) * (targetY - py))
+
+            if d < bestDist {
+                bestDist     = d
+                bestProgress = (cumDist + t * segLen) / totalDist
+            }
+            cumDist += segLen
+        }
+
+        // ~350m Toleranz im Mercator-Raum (bei 48°N ≈ 230m WGS84)
+        guard bestDist < 500 else { return nil }
+
+        // Zeitstempel aus time_intervals für diesen Fortschritt interpolieren
+        let sorted = parseTimeIntervals(timeIntervals)
+        guard !sorted.isEmpty else { return nil }
+
+        if bestProgress <= sorted.first!.progress {
+            return Date(timeIntervalSince1970: sorted.first!.ts / 1000)
+        }
+        if bestProgress >= sorted.last!.progress {
+            return Date(timeIntervalSince1970: sorted.last!.ts / 1000)
+        }
+        for i in 0..<(sorted.count - 1) {
+            let p1 = sorted[i].progress, p2 = sorted[i+1].progress
+            guard p1 <= bestProgress, bestProgress <= p2 else { continue }
+            let frac = p2 > p1 ? (bestProgress - p1) / (p2 - p1) : 0.5
+            let ts   = sorted[i].ts + frac * (sorted[i+1].ts - sorted[i].ts)
+            return Date(timeIntervalSince1970: ts / 1000)
+        }
+        return nil
+    }
+
+    /// Gemeinsames Parsen der time_intervals für currentPosition und interpolatedTime.
+    private func parseTimeIntervals(_ timeIntervals: [[Any]]) -> [(ts: Double, progress: Double)] {
+        let maxStopIdx = max(1,
+            timeIntervals.compactMap { entry -> Int? in
+                guard entry.count > 1 else { return nil }
+                return entry[1] as? Int
+            }.max() ?? 1
+        )
+        var result: [(ts: Double, progress: Double)] = []
+        for entry in timeIntervals {
+            guard let ts = (entry.first as? Double) ?? (entry.first as? Int).map(Double.init)
+            else { continue }
+            let stopIdx = (entry.count > 1 ? entry[1] as? Int : nil) ?? 0
+            result.append((ts: ts, progress: Double(stopIdx) / Double(maxStopIdx)))
+        }
+        return result.sorted { $0.ts < $1.ts }
+    }
+
+    // MARK: - Nicht-S-Bahn Annäherungserkennung (Güterzüge, RB, RE …)
+
+    private func detectNonSBahnApproach(tripId: String,
+                                         rawCoords: [[Double]],
+                                         timeIntervals: [[Any]],
+                                         lat: Double, lon: Double) {
+        guard lat != 0, lon != 0 else { return }
+
+        // Mindestgeschwindigkeit prüfen: Fahrzeug muss sich bewegt haben
+        if let prev = nonSBahnLastPos[tripId] {
+            let moved    = haversineMeters(lat1: prev.lat, lon1: prev.lon, lat2: lat, lon2: lon)
+            let timeDiff = max(1, Date().timeIntervalSince(prev.updatedAt))
+            let speedKmh = (moved / timeDiff) * 3.6
+            guard speedKmh > 15 else {
+                nonSBahnLastPos[tripId] = (lat: lat, lon: lon, updatedAt: Date())
+                return
+            }
+        }
+        nonSBahnLastPos[tripId] = (lat: lat, lon: lon, updatedAt: Date())
+
+        for crossing in CrossingLocation.all {
+            // Grobfilter: aktueller GPS-Abstand < 8 km
+            let distNow = haversineMeters(lat1: lat, lon1: lon,
+                                           lat2: crossing.latitude, lon2: crossing.longitude)
+            guard distNow < 8000 else { continue }
+
+            let crossingX = crossing.longitude * 20037508.34 / 180.0
+            let crossingY = log(tan(.pi / 4 + crossing.latitude * .pi / 360)) * 6378137.0
+
+            guard let arrival = interpolatedTime(targetX: crossingX, targetY: crossingY,
+                                                 rawCoords: rawCoords,
+                                                 timeIntervals: timeIntervals)
+            else { continue }
+
+            let secondsUntil = arrival.timeIntervalSinceNow
+            // Fenster: bis zu 15 min voraus, max. 90s vergangen
+            guard secondsUntil > -90, secondsUntil < 900 else { continue }
+
+            freightApproaches[crossing.id] = arrival
+#if DEBUG
+            print("[NonSBahn] \(crossing.name) in \(Int(secondsUntil))s tripId=\(tripId)")
+#endif
+        }
+
+        // Abgelaufene Einträge bereinigen
+        let now = Date()
+        freightApproaches = freightApproaches.filter { $0.value.timeIntervalSince(now) > -120 }
+
+        // Alten nonSBahn-Positions-Cache bereinigen (> 10 min unberührt)
+        nonSBahnLastPos = nonSBahnLastPos.filter {
+            now.timeIntervalSince($0.value.updatedAt) < 600
         }
     }
 

@@ -98,9 +98,10 @@ final class CrossingViewModel {
         var buf = recentMeasurements[crossingId] ?? ([], [])
 
         if toMunich {
-            // Ausreißer-Schutz
-            if let existing = crossing.measuredOffsetToMunich, abs(offset - existing) > 120 {
-                print("[AutoOffset] \(crossingId) München: Ausreißer \(Int(offset))s ignoriert")
+            // Ausreißer-Schutz: Schwellwert wächst mit Kalman-Varianz (hohe Unsicherheit = toleranter)
+            let outlierThreshold = max(60.0, min(180.0, 3.0 * sqrt(crossing.kalmanVarianceMunich)))
+            if let existing = crossing.measuredOffsetToMunich, abs(offset - existing) > outlierThreshold {
+                print("[AutoOffset] \(crossingId) München: Ausreißer \(Int(offset))s ignoriert (±\(Int(outlierThreshold))s Schwelle)")
                 return
             }
 
@@ -132,8 +133,9 @@ final class CrossingViewModel {
             crossing.hourlyOffsetsMunich[hourKey] = xH
 
         } else {
-            if let existing = crossing.measuredOffsetToFreising, abs(offset - existing) > 120 {
-                print("[AutoOffset] \(crossingId) Freising: Ausreißer \(Int(offset))s ignoriert")
+            let outlierThreshold = max(60.0, min(180.0, 3.0 * sqrt(crossing.kalmanVarianceFreising)))
+            if let existing = crossing.measuredOffsetToFreising, abs(offset - existing) > outlierThreshold {
+                print("[AutoOffset] \(crossingId) Freising: Ausreißer \(Int(offset))s ignoriert (±\(Int(outlierThreshold))s Schwelle)")
                 return
             }
 
@@ -351,7 +353,7 @@ final class CrossingViewModel {
     private func buildEvents(from trains: [TrainEntry]) -> [CrossingEvent] {
         let community = communityOffsets[selectedCrossing.id]
         let hour      = Calendar.current.component(.hour, from: Date())
-        return trains
+        var events: [CrossingEvent] = trains
             .filter { !$0.isCancelled }
             .compactMap { train -> CrossingEvent? in
                 // Priorität: Tageszeit-GPS > allg. GPS (≥3) > Community > statisch
@@ -364,8 +366,26 @@ final class CrossingViewModel {
                 )
                 let offset = feedback.totalClosingOffset(base: base, toMunich: toMunich)
 
-                let crossingTime = train.actualTime.addingTimeInterval(offset)
-                let keepWindow = openingDelaySeconds + 30
+                // Trajectory-basierte Zeit bevorzugen wenn verfügbar (genauer als Offset)
+                // Toleranz wächst mit Kalman-Varianz: bei unsicherem Offset Trajectory stärker vertrauen
+                let kalmanVariance = toMunich
+                    ? selectedCrossing.kalmanVarianceMunich
+                    : selectedCrossing.kalmanVarianceFreising
+                let trajectoryTolerance = max(120.0, min(300.0, 3.0 * sqrt(kalmanVariance)))
+
+                let trajectoryTime = GeopsRealtimeService.shared.estimatedArrivalAtCrossing(
+                    selectedCrossing, for: train.geopsMatchedTripId ?? train.id
+                )
+                let crossingTime: Date
+                if let tTime = trajectoryTime,
+                   abs(tTime.timeIntervalSince(train.actualTime.addingTimeInterval(offset))) < trajectoryTolerance {
+                    crossingTime = tTime
+                } else {
+                    crossingTime = train.actualTime.addingTimeInterval(offset)
+                }
+
+                let openingDelay = feedback.totalOpeningDelay
+                let keepWindow = openingDelay + 30
                 guard crossingTime.timeIntervalSinceNow > -keepWindow else { return nil }
 
                 let departure = TrainDeparture(
@@ -382,10 +402,33 @@ final class CrossingViewModel {
                     id: train.id,
                     train: departure,
                     estimatedCrossingTime: crossingTime,
-                    openingDelayMinutes: openingDelaySeconds / 60
+                    openingDelayMinutes: openingDelay / 60
                 )
             }
-            .sorted { $0.estimatedCrossingTime < $1.estimatedCrossingTime }
+
+        // Güterzüge / Nicht-S-Bahn via Geops-Echtzeit-GPS
+        let openingDelay = feedback.totalOpeningDelay
+        if let freightTime = GeopsRealtimeService.shared.freightApproaches[selectedCrossing.id],
+           freightTime.timeIntervalSinceNow > -(openingDelay + 30) {
+            let freightDep = TrainDeparture(
+                id:               "freight_\(Int(freightTime.timeIntervalSinceReferenceDate))",
+                lineName:         "Gz",
+                direction:        "Güterzug / Sonstiger",
+                resolvedDirection: .toMunich,
+                scheduledTime:    freightTime,
+                actualTime:       freightTime,
+                delayMinutes:     0,
+                isArrival:        false
+            )
+            events.append(CrossingEvent(
+                id:                    "freight_\(Int(freightTime.timeIntervalSinceReferenceDate))",
+                train:                 freightDep,
+                estimatedCrossingTime: freightTime,
+                openingDelayMinutes:   openingDelay / 60
+            ))
+        }
+
+        return events.sorted { $0.estimatedCrossingTime < $1.estimatedCrossingTime }
     }
 
     // MARK: - Sicherheits-Properties
@@ -413,15 +456,15 @@ final class CrossingViewModel {
             .filter { $0.estimatedCrossingTime >= first.estimatedCrossingTime }
             .sorted { $0.estimatedCrossingTime < $1.estimatedCrossingTime }
 
-        // Kette: Folgezug kommt bevor Schranke nach vorherigem Zug öffnen würde
+        let effectiveOpeningDelay = feedback.totalOpeningDelay
         var last = first.estimatedCrossingTime
         for ev in sorted {
-            let barrierWouldOpen = last + trainPassageDurationSeconds + openingDelaySeconds
-            if ev.estimatedCrossingTime <= barrierWouldOpen + 30 { // +30s Puffer
+            let barrierWouldOpen = last + trainPassageDurationSeconds + effectiveOpeningDelay
+            if ev.estimatedCrossingTime <= barrierWouldOpen + 30 {
                 last = ev.estimatedCrossingTime
             } else { break }
         }
-        return last.addingTimeInterval(trainPassageDurationSeconds + openingDelaySeconds)
+        return last.addingTimeInterval(trainPassageDurationSeconds + effectiveOpeningDelay)
     }
 
     /// Anzahl Züge in der aktuellen Zugkette.
@@ -437,10 +480,11 @@ final class CrossingViewModel {
             .filter { $0.estimatedCrossingTime >= first.estimatedCrossingTime }
             .sorted { $0.estimatedCrossingTime < $1.estimatedCrossingTime }
 
+        let effectiveOpeningDelay = feedback.totalOpeningDelay
         var last  = first.estimatedCrossingTime
         var count = 0
         for ev in sorted {
-            let barrierWouldOpen = last + trainPassageDurationSeconds + openingDelaySeconds
+            let barrierWouldOpen = last + trainPassageDurationSeconds + effectiveOpeningDelay
             if ev.estimatedCrossingTime <= barrierWouldOpen + 30 {
                 last = ev.estimatedCrossingTime
                 count += 1
@@ -451,7 +495,7 @@ final class CrossingViewModel {
 
     // Wird von der View mit dem aktuellen Datum aufgerufen → garantiert 1s-Updates
     func worstStatus(at date: Date) -> CrossingStatus {
-        let upcoming = nextEvents.filter { $0.minutesUntil(from: date) < 6 }
+        let upcoming = nextEvents.filter { $0.minutesUntil(from: date) < 4 }
 
         let hasClosed  = upcoming.contains(where: { $0.status(at: date) == .closed })
         let hasWarning = upcoming.contains(where: { $0.status(at: date) == .warning })
@@ -474,8 +518,8 @@ final class CrossingViewModel {
         guard let announcer = voiceAnnouncer else { return }
 
         for event in nextEvents {
-            // Sprechen wenn Status auf .warning wechselt (3.5 min vor Crossing)
-            let fireTime = event.estimatedCrossingTime.addingTimeInterval(-3.5 * 60)
+            // Sprechen wenn Status auf .warning wechselt (2.5 min vor Crossing)
+            let fireTime = event.estimatedCrossingTime.addingTimeInterval(-2.5 * 60)
             let delay    = fireTime.timeIntervalSinceNow
             guard delay > 1 && delay < 5400 else { continue } // nur bis 90 min im Voraus
 
@@ -548,7 +592,7 @@ final class CrossingViewModel {
         }
 
         let crossing = event.estimatedCrossingTime
-        let closing  = crossing.addingTimeInterval(-150)  // 150s vor Zug → rot
+        let closing  = crossing.addingTimeInterval(-90)  // 90s vor Zug → Schranke schließt
 
         // Öffnungszeit: nach dem letzten Zug in der Kette berechnen
         // Bleibt die Schranke wegen einem Folgezug zu? → dessen Crossing + delay nehmen

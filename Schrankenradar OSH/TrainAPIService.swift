@@ -82,10 +82,11 @@ struct TrainAPIService {
         // Schritt 1+2: DB-Einträge als Basis, Geops-Zeiten haben Priorität
         for dbEntry in dbEntries {
             if let geopsStop = bestGeopsMatch(for: dbEntry, in: geopsStops) {
-                // Geops-Zeit übernehmen
+                // Geops-Zeit übernehmen + TripId merken für Trajectory-Lookup
                 matchedGeopsIds.insert(geopsStop.tripId)
-                let actualTime = geopsStop.actualDeparture
-                let updated = dbEntry.with(actualTime: actualTime)
+                let updated = dbEntry
+                    .with(actualTime: geopsStop.actualDeparture)
+                    .withGeopsId(geopsStop.tripId)
                 result.append(updated)
             } else {
                 // Kein Geops-stopsequence-Match: trajectory-Delay als Fallback
@@ -316,24 +317,39 @@ struct TrainEntry: Identifiable {
     let isCancelled: Bool
     let platform: String?
     let stopsAtStation: Bool
+    /// Geops tripId wenn dieser Eintrag mit einem Geops-Stop gematcht wurde
+    let geopsMatchedTripId: String?
 
     func with(actualTime newTime: Date) -> TrainEntry {
         TrainEntry(
             id: id, lineName: lineName, direction: direction,
             scheduledTime: scheduledTime, actualTime: newTime,
             delayMinutes: max(0, Int(newTime.timeIntervalSince(scheduledTime) / 60)),
-            isCancelled: isCancelled, platform: platform, stopsAtStation: stopsAtStation
+            isCancelled: isCancelled, platform: platform, stopsAtStation: stopsAtStation,
+            geopsMatchedTripId: geopsMatchedTripId
+        )
+    }
+
+    func withGeopsId(_ tripId: String) -> TrainEntry {
+        TrainEntry(
+            id: id, lineName: lineName, direction: direction,
+            scheduledTime: scheduledTime, actualTime: actualTime,
+            delayMinutes: delayMinutes,
+            isCancelled: isCancelled, platform: platform, stopsAtStation: stopsAtStation,
+            geopsMatchedTripId: tripId
         )
     }
 
     // Designated init (privat, alle Felder)
     private init(id: String, lineName: String, direction: TrainDirection,
                  scheduledTime: Date, actualTime: Date, delayMinutes: Int,
-                 isCancelled: Bool, platform: String?, stopsAtStation: Bool) {
+                 isCancelled: Bool, platform: String?, stopsAtStation: Bool,
+                 geopsMatchedTripId: String? = nil) {
         self.id = id; self.lineName = lineName; self.direction = direction
         self.scheduledTime = scheduledTime; self.actualTime = actualTime
         self.delayMinutes = delayMinutes; self.isCancelled = isCancelled
         self.platform = platform; self.stopsAtStation = stopsAtStation
+        self.geopsMatchedTripId = geopsMatchedTripId
     }
 
     /// Erstellt einen TrainEntry aus einem TimetableStop (DB-Quelle).
@@ -370,14 +386,15 @@ struct TrainEntry: Identifiable {
         let actual  = stop.actualDepartureTime ?? planned
         let dbDelay = max(0, Int(actual.timeIntervalSince(planned) / 60))
 
-        self.id             = stop.id
-        self.lineName       = lineName
-        self.scheduledTime  = planned
-        self.actualTime     = actual
-        self.delayMinutes   = dbDelay
-        self.isCancelled    = stop.isCancelled
-        self.platform       = stop.changedPlatform
-        self.stopsAtStation = lineName == "S1"
+        self.id                  = stop.id
+        self.lineName            = lineName
+        self.scheduledTime       = planned
+        self.actualTime          = actual
+        self.delayMinutes        = dbDelay
+        self.isCancelled         = stop.isCancelled
+        self.platform            = stop.changedPlatform
+        self.stopsAtStation      = lineName == "S1"
+        self.geopsMatchedTripId  = nil
         self.direction = Self.detectDirection(
             departurePath: dp.path ?? "",
             arrivalPath:   stop.ar?.path ?? ""
@@ -387,21 +404,22 @@ struct TrainEntry: Identifiable {
     /// Erstellt einen synthetischen TrainEntry aus einem Geops-StopDeparture.
     /// Wird für Züge verwendet, die Geops kennt, DB aber nicht (im 90-Min-Fenster).
     init(fromGeopsStop stop: GeopsStopDeparture, direction: TrainDirection) {
-        self.id             = "geops_\(stop.tripId)"
-        self.lineName       = stop.lineName
-        self.direction      = direction
-        self.scheduledTime  = stop.plannedDeparture
-        self.actualTime     = stop.actualDeparture
-        self.delayMinutes   = max(0, Int(stop.actualDeparture.timeIntervalSince(stop.plannedDeparture) / 60))
-        self.isCancelled    = false
-        self.platform       = nil
-        self.stopsAtStation = stop.lineName == "S1"
+        self.id                 = "geops_\(stop.tripId)"
+        self.lineName           = stop.lineName
+        self.direction          = direction
+        self.scheduledTime      = stop.plannedDeparture
+        self.actualTime         = stop.actualDeparture
+        self.delayMinutes       = max(0, Int(stop.actualDeparture.timeIntervalSince(stop.plannedDeparture) / 60))
+        self.isCancelled        = false
+        self.platform           = nil
+        self.stopsAtStation     = stop.lineName == "S1"
+        self.geopsMatchedTripId = stop.tripId
     }
 
     private static func detectDirection(departurePath: String,
                                         arrivalPath: String) -> TrainDirection {
         let freisungKeywords = ["freising", "flughafen", "neufahrn", "pulling", "eching",
-                                "lohhof", "unterschlei", "hallbergmoos"]
+                                "lohhof", "unterschlei", "oberschlei", "hallbergmoos"]
         let munichKeywords   = ["feldmoching", "münchen", "ostbahnhof", "laim", "pasing",
                                 "moosach", "petershausen", "dachau", "karlsfeld"]
 
