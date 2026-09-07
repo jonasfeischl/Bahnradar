@@ -1,7 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "ChatGPT Image 30. Mai 2026, 16_31_04-2 2.png",
+      "filename" : "IconHell.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -13,7 +13,7 @@
           "value" : "dark"
         }
       ],
-      "filename" : "ChatGPT Image 30. Mai 2026, 16_31_04-2 1.png",
+      "filename" : "bahnradar-icon-dark-1024.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -25,7 +25,7 @@
           "value" : "tinted"
         }
       ],
-      "filename" : "ChatGPT Image 30. Mai 2026, 16_31_04-2.png",
+      "filename" : "bahnradar-icon-tinted-1024.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"

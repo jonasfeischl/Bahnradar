@@ -1,0 +1,11 @@
+# Xcode build output
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# macOS
+.DS_Store
+
+# Große ML-Modelldateien (>100MB GitHub-Limit, separat bereitstellen)
+*.onnx
