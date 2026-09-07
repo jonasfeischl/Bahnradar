@@ -15,7 +15,12 @@ struct SchrankenModeView: View {
 
     /// Ab dieser Entfernung gilt man als "an der Schranke" — verhindert, dass Messungen
     /// aus der Ferne eingespeist werden und die geteilten Community-Daten verfälschen.
-    private static let presenceRadius: Double = 250
+    /// Nutzt den vom Nutzer pro Übergang konfigurierten Radius (Einstellungen → Radius)
+    /// statt eines fest einprogrammierten Werts — sonst kann "in der Nähe" hier etwas
+    /// anderes bedeuten als der Radius, den der Nutzer selbst eingestellt hat.
+    private var presenceRadius: Double {
+        viewModel.selectedCrossing.radiusMeters
+    }
 
     private var distanceToCrossing: Double? {
         locationMonitor.distance(to: viewModel.selectedCrossing)
@@ -23,7 +28,7 @@ struct SchrankenModeView: View {
 
     private var isAtCrossing: Bool {
         guard let distance = distanceToCrossing else { return false }
-        return distance <= Self.presenceRadius
+        return distance <= presenceRadius
     }
 
     var body: some View {
@@ -129,8 +134,8 @@ struct SchrankenModeView: View {
     /// 5-fache des Radius gedeckelt, damit die Anzeige bei z.B. 5km nicht komplett leer wirkt.
     private var approachProgress: Double {
         guard let distance = distanceToCrossing else { return 0 }
-        let cappedRange = Self.presenceRadius * 5
-        return 1 - min(1, max(0, (distance - Self.presenceRadius) / (cappedRange - Self.presenceRadius)))
+        let cappedRange = presenceRadius * 5
+        return 1 - min(1, max(0, (distance - presenceRadius) / (cappedRange - presenceRadius)))
     }
 
     private var notAvailableView: some View {
@@ -173,7 +178,7 @@ struct SchrankenModeView: View {
                             HStack {
                                 Text("0 m")
                                 Spacer()
-                                Text("\(Int(Self.presenceRadius)) m Radius")
+                                Text("\(Int(presenceRadius)) m Radius")
                             }
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
@@ -196,7 +201,7 @@ struct SchrankenModeView: View {
                     Label("Warum nur vor Ort?", systemImage: "checkmark.shield.fill")
                         .font(.subheadline.bold())
                         .foregroundStyle(Color.brand)
-                    Text("Der Schranken-Modus funktioniert nur direkt an der Schranke (im Umkreis von \(Int(Self.presenceRadius))m). So bleiben die Messungen echt — niemand kann aus der Ferne falsche Aufzeichnungen einspeisen und die geteilten Daten für alle verfälschen.")
+                    Text("Der Schranken-Modus funktioniert nur direkt an der Schranke (im Umkreis von \(Int(presenceRadius))m). So bleiben die Messungen echt — niemand kann aus der Ferne falsche Aufzeichnungen einspeisen und die geteilten Daten für alle verfälschen.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 
 @main
 struct Schrankenradar_OSHApp: App {
@@ -57,6 +58,35 @@ struct Schrankenradar_OSHApp: App {
                         .tabItem {
                             Label("Einstellungen", systemImage: "gearshape.fill")
                         }
+                }
+                // Fahrterkennung + isDriving/isNearCrossing-Sync bewusst hier auf Tab-View-Ebene
+                // statt in ContentView — lief vorher nur auf dem Radar-Tab, weil ContentViews
+                // .onReceive/.onChange bei Tab-Wechsel pausieren (siehe ContentView.onDisappear
+                // "Tab-Wechsel"-Kommentar). Dadurch fror isDriving/isNearCrossing ein, sobald man
+                // z.B. während der Fahrt auf dem Schranken-Modus-Tab war — keine Sprachansage mehr,
+                // weil scheduleVoiceAnnouncements() genau diese beiden Werte prüft.
+                .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+                    drivingDetector.tick()
+                }
+                .onChange(of: drivingDetector.isDriving) { _, driving in
+                    if driving { locationMonitor.start() } else { locationMonitor.stop() }
+                    viewModel.isDriving = driving
+                }
+                .onChange(of: locationMonitor.isNearCrossing) { _, near in
+                    viewModel.isNearCrossing = near
+                }
+                .task {
+                    // Ebenfalls tab-unabhängig statt in ContentView.onAppear — GPS-Geschwindigkeit
+                    // muss auch außerhalb des Radar-Tabs bei der Fahrterkennung ankommen.
+                    locationMonitor.crossings = viewModel.store.crossings
+                    locationMonitor.onAutoSwitch = { crossing in
+                        guard viewModel.store.selectedId != crossing.id else { return }
+                        viewModel.store.select(crossing)
+                        Task { await viewModel.fetchData() }
+                    }
+                    locationMonitor.onSpeedUpdate = { speed in
+                        drivingDetector.updateSpeed(metersPerSecond: speed)
+                    }
                 }
                 .task {
                     // Kurz warten bis das Fenster wirklich "key"/bereit ist — ein fullScreenCover

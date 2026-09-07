@@ -104,28 +104,17 @@ struct ContentView: View {
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { date in
             now = date
             triggerHapticIfNeeded()
-            drivingDetector.tick()
         }
         .onAppear {
             if !isInitialized {
                 // Einmaliges Setup beim allerersten Start
                 isInitialized = true
-                // viewModel.setup()/startAutoRefresh() werden zentral von der App-Ebene
+                // viewModel.setup()/startAutoRefresh() sowie die Fahrterkennungs-Verdrahtung
+                // (crossings/onAutoSwitch/onSpeedUpdate) werden zentral von der App-Ebene
                 // ausgelöst (siehe Schrankenradar_OSHApp.swift) — genau wie drivingDetector.start(),
                 // aus demselben Grund: der Radar-Tab ist beim allerersten Erscheinen manchmal
-                // noch nicht "richtig" da, wodurch Daten sonst erst nach einem Tab-Wechsel
-                // korrekt angezeigt wurden.
-                locationMonitor.crossings = viewModel.store.crossings
-                locationMonitor.onAutoSwitch = { crossing in
-                    guard viewModel.store.selectedId != crossing.id else { return }
-                    viewModel.store.select(crossing)
-                    Task { await viewModel.fetchData() }
-                }
-                // GPS-Geschwindigkeit an die Fahrt-Erkennung weiterreichen — erkennt
-                // Fahrtbeginn deutlich schneller als Core Motion allein.
-                locationMonitor.onSpeedUpdate = { speed in
-                    drivingDetector.updateSpeed(metersPerSecond: speed)
-                }
+                // noch nicht "richtig" da bzw. später evtl. gar nicht aktiv, wodurch das sonst
+                // nicht (mehr) korrekt lief.
                 // Ampel/Status-Pille zeigen den Anfangszustand sofort ohne Überblendung.
                 // Erst danach werden echte, während der Nutzung auftretende Statuswechsel animiert.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
@@ -180,9 +169,8 @@ struct ContentView: View {
                     try? await Task.sleep(for: .seconds(3))
                     guard !Task.isCancelled else { return }
                     wasInBackground = true
-                    // Werte VOR dem Stoppen der Sensoren lesen
+                    // Wert VOR dem Stoppen der Sensoren lesen
                     let wasDriving = viewModel.isDriving
-                    let wasNear    = viewModel.isNearCrossing
 
                     // Live-Datenrefresh (geOps-WebSocket, DB-Polling) pausiert im Hintergrund
                     // so oder so — dafür gibt's kein eigenes Hintergrund-Netzwerk-Setup. Die
@@ -198,10 +186,12 @@ struct ContentView: View {
                     // ohnehin durch iOS selbst — dann gibt es bewusst keine Warnung mehr, bis
                     // die App wieder geöffnet wird (kein Mitteilungs-Rückfall mehr).
                     if locationMonitor.authorizationStatus == .authorizedAlways {
-                        // Hörbare Bestätigung nur, wenn Hintergrund-Tracking gerade
-                        // tatsächlich etwas bewirkt (Fahrt + in Schranken-Nähe) — sonst
-                        // wäre "jetzt aktiv" beim simplen Wegwischen daheim irreführend.
-                        if voiceEnabled && wasDriving && wasNear {
+                        // Hörbare Bestätigung bei jeder erkannten Fahrt, unabhängig von der
+                        // Schranken-Nähe — die Bestätigung soll gerade VOR Ankunft an der
+                        // Schranke zeigen, dass die App im Hintergrund mitläuft (nicht erst,
+                        // wenn man ohnehin schon da ist). Nur beim simplen Wegwischen daheim
+                        // (nicht am Fahren) bleibt sie bewusst aus.
+                        if voiceEnabled && wasDriving {
                             voiceAnnouncer.announceBackgroundActive()
                         }
                     } else {
@@ -216,13 +206,6 @@ struct ContentView: View {
             @unknown default:
                 break
             }
-        }
-        .onChange(of: drivingDetector.isDriving) { _, driving in
-            if driving { locationMonitor.start() } else { locationMonitor.stop() }
-            viewModel.isDriving = driving
-        }
-        .onChange(of: locationMonitor.isNearCrossing) { _, near in
-            viewModel.isNearCrossing = near
         }
         .onChange(of: viewModel.store.selectedId) { _, _ in
             viewModel.selectAndRefresh()

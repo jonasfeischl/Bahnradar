@@ -68,16 +68,37 @@ actor NeuralVoiceEngine {
     ///   - emphasizeIndices: Diese Teile werden etwas lauter abgespielt — Ersatz für eine
     ///     echte Betonung, die das Modell selbst nicht steuerbar unterstützt (keine
     ///     Stress-Markierungen in den Trainingsdaten).
-    func synthesize(parts: [String], pauseBeforeIndices: Set<Int> = [], emphasizeIndices: Set<Int> = []) -> Data? {
+    func synthesize(parts: [String], pauseBeforeIndices: Set<Int> = [], emphasizeIndices: Set<Int> = []) async -> Data? {
         guard let session else { return nil }
 
-        var allSamples: [Float] = []
-        for (index, part) in parts.enumerated() {
+        // Erst alle Wortschatz-Lookups prüfen (schnell, synchron) — fehlt ein Teil,
+        // brechen wir ab, bevor überhaupt teure Inferenz gestartet wird.
+        var idsPerPart: [[Int64]] = []
+        for part in parts {
             guard let ids = vocabulary[part] else {
-                DebugLog.shared.add("Neuronale Stimme: unbekannter Text im Wortschatz: \"\(part)\"", level: .warn)
+                await DebugLog.shared.add("Neuronale Stimme: unbekannter Text im Wortschatz: \"\(part)\"", level: .warn)
                 return nil
             }
-            guard var samples = runInference(session: session, ids: ids) else { return nil }
+            idsPerPart.append(ids)
+        }
+
+        // Alle Teile parallel statt nacheinander berechnen — bei zweiteiligen Ansagen
+        // (Status + Zeitangabe) halbiert das etwa die Wartezeit, da jeder Teil einen
+        // eigenen, unabhängigen Inferenz-Durchlauf braucht (ORT-Sessions erlauben
+        // parallele run()-Aufrufe von mehreren Threads).
+        let lengthScale = self.lengthScale
+        let indexedResults = await withTaskGroup(of: (Int, [Float]?).self) { group in
+            for (index, ids) in idsPerPart.enumerated() {
+                group.addTask { (index, Self.runInference(session: session, ids: ids, lengthScale: lengthScale)) }
+            }
+            var collected: [Int: [Float]?] = [:]
+            for await (index, samples) in group { collected[index] = samples }
+            return collected
+        }
+
+        var allSamples: [Float] = []
+        for index in idsPerPart.indices {
+            guard var samples = indexedResults[index] ?? nil else { return nil }
             samples = Self.fadeIn(samples, sampleRate: sampleRate)
             if emphasizeIndices.contains(index) {
                 samples = Self.boostVolume(samples, factor: 1.6)
@@ -93,7 +114,10 @@ actor NeuralVoiceEngine {
         return Self.wavData(samples: shifted, sampleRate: sampleRate)
     }
 
-    private func runInference(session: ORTSession, ids: [Int64]) -> [Float]? {
+    /// nonisolated statt actor-isoliert, damit mehrere Aufrufe (siehe synthesize()) wirklich
+    /// parallel statt nacheinander laufen. DebugLog-Aufrufe deshalb über einen eigenen
+    /// MainActor-Task statt direkt — DebugLog ist (wie der Rest der App) MainActor-isoliert.
+    private static func runInference(session: ORTSession, ids: [Int64], lengthScale: Float) -> [Float]? {
         do {
             let inputShape: [NSNumber] = [1, NSNumber(value: ids.count)]
             let inputData = NSMutableData(bytes: ids, length: ids.count * MemoryLayout<Int64>.size)
@@ -115,7 +139,7 @@ actor NeuralVoiceEngine {
                 runOptions: nil
             )
             guard let outputValue = outputs["output"] else {
-                DebugLog.shared.add("Neuronale Stimme: kein output vom Modell.", level: .warn)
+                Task { @MainActor in DebugLog.shared.add("Neuronale Stimme: kein output vom Modell.", level: .warn) }
                 return nil
             }
             let data = try outputValue.tensorData() as Data
@@ -123,12 +147,14 @@ actor NeuralVoiceEngine {
                 Array(buffer.bindMemory(to: Float.self))
             }
             guard !samples.isEmpty else {
-                DebugLog.shared.add("Neuronale Stimme: leere Samples vom Modell.", level: .warn)
+                Task { @MainActor in DebugLog.shared.add("Neuronale Stimme: leere Samples vom Modell.", level: .warn) }
                 return nil
             }
             return samples
         } catch {
-            DebugLog.shared.add("Neuronale Stimme fehlgeschlagen (\(error)), falle auf iOS-Stimme zurück.", level: .warn)
+            Task { @MainActor in
+                DebugLog.shared.add("Neuronale Stimme fehlgeschlagen (\(error)), falle auf iOS-Stimme zurück.", level: .warn)
+            }
             return nil
         }
     }

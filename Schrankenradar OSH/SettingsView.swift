@@ -181,10 +181,20 @@ struct SettingsView: View {
                                 }
                             }
                         }
+
+                        Button {
+                            MetricKitMonitor.shared.toggle()
+                        } label: {
+                            Label(
+                                MetricKitMonitor.shared.isRunning ? "MetricKit stoppen" : "MetricKit starten",
+                                systemImage: MetricKitMonitor.shared.isRunning ? "stop.circle" : "waveform.path.ecg"
+                            )
+                            .foregroundStyle(MetricKitMonitor.shared.isRunning ? .red : .accentColor)
+                        }
                     } header: {
                         Text("Admin")
                     } footer: {
-                        Text("Diagnose-Log protokolliert DB-Fahrplan-Abrufe, Geops-Live-GPS und die Berechnung der Durchfahrtszeit. Bei einem Problem: hier öffnen, „Kopieren“ tippen und den Text weitergeben.")
+                        Text("Diagnose-Log protokolliert DB-Fahrplan-Abrufe, Geops-Live-GPS und die Berechnung der Durchfahrtszeit. Bei einem Problem: hier öffnen, „Kopieren“ tippen und den Text weitergeben.\n\nMetricKit beobachtet Hangs/Crashes im Hintergrund, auch unterwegs ohne Mac — nur solange aktiv, wie du es hier eingeschaltet lässt. Landet ebenfalls im Diagnose-Log.")
                     }
                 }
 
