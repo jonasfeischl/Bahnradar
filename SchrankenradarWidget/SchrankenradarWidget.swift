@@ -51,12 +51,12 @@ struct CrossingProvider: TimelineProvider {
     private let apiClientId = "bb2d56302fc6faac8ac204a28a58beda"
     private let apiKey      = "e77347cdd2f22d6f600a4df38271f4af"
     private let dbBase      = "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1"
-    private let openingDelay: Double = 10   // identisch zur Hauptapp (openingDelaySeconds)
+    private let openingDelay: Double = 20   // identisch zur Hauptapp (FeedbackLearner.totalOpeningDelay Basis)
 
     // Geteilte UserDefaults mit der Haupt-App (App Group)
     private var shared: UserDefaults { UserDefaults(suiteName: "group.schrankenradar.osh") ?? .standard }
 
-    private var stationEVA:       String { shared.string(forKey: "widget_stationEVA")       ?? "8004158" }
+    private var stationEVA:       String { shared.string(forKey: "widget_stationEVA")       ?? "8004580" }
     private var crossingName:     String { shared.string(forKey: "widget_crossingName")     ?? "Dachauer Str." }
     private var crossingSubtitle: String { shared.string(forKey: "widget_crossingSubtitle") ?? "Oberschleißheim" }
     private var offsetToMunich:   Double { shared.double(forKey: "widget_offsetToMunich").nonZero ?? 180 }
@@ -109,9 +109,9 @@ struct CrossingProvider: TimelineProvider {
         // Zusätzlich: Statuswechsel-Zeitpunkte für jeden Zug exakt treffen
         for train in trains {
             let crossing = train.crossingTime
-            checkDates.insert(crossing.addingTimeInterval(-3 * 60))  // warning start
-            checkDates.insert(crossing.addingTimeInterval(-60))       // closed start
-            checkDates.insert(crossing)                               // crossing
+            checkDates.insert(crossing.addingTimeInterval(-2.5 * 60))  // warning start
+            checkDates.insert(crossing.addingTimeInterval(-1.5 * 60))  // closed start
+            checkDates.insert(crossing)                                // crossing
             checkDates.insert(crossing.addingTimeInterval(openingDelay)) // opening
             checkDates.insert(crossing.addingTimeInterval(openingDelay + 15)) // open again
         }
@@ -133,7 +133,42 @@ struct CrossingProvider: TimelineProvider {
 
     // MARK: Daten laden
 
+    /// Lädt die von der App berechneten Geops-genauen Events (Live-Zeiten + GPS-Offsets
+    /// + Trajectory) aus der App Group. Gibt nil zurück wenn keine oder veraltete Daten
+    /// (> 12 min) vorliegen — dann fällt das Widget auf den eigenen DB-Fetch zurück.
+    private func loadAppEvents() -> [WidgetTrain]? {
+        guard let data = shared.data(forKey: SharedWidgetPayload.userDefaultsKey),
+              let payload = try? JSONDecoder().decode(SharedWidgetPayload.self, from: data)
+        else { return nil }
+
+        // Nur nutzen wenn frisch und für den aktuell im Widget gezeigten Übergang
+        guard Date().timeIntervalSince(payload.generatedAt) < 12 * 60,
+              payload.crossingName == crossingName
+        else { return nil }
+
+        let now = Date()
+        let trains = payload.events
+            .filter { $0.crossingTime.addingTimeInterval(openingDelay + 60) > now }
+            .map {
+                WidgetTrain(
+                    line: $0.line,
+                    direction: $0.directionIsMunich ? "München" : "Freising",
+                    crossingTime: $0.crossingTime,
+                    delayMinutes: $0.delayMinutes
+                )
+            }
+            .sorted { $0.crossingTime < $1.crossingTime }
+
+        return trains
+    }
+
     private func fetchTrains() async throws -> [WidgetTrain] {
+        // 1. Bevorzugt: Geops-genaue Events aus der App
+        if let appEvents = loadAppEvents() {
+            return appEvents
+        }
+
+        // 2. Fallback: eigener DB-Fetch (ohne Geops)
         let now  = Date()
         let next = now.addingTimeInterval(3600)
 
@@ -253,8 +288,8 @@ struct CrossingProvider: TimelineProvider {
 
         func status(_ train: WidgetTrain) -> WidgetStatus {
             let m = train.minutesUntil(from: date)
-            if m > 3.5                          { return .open }
-            if m > 2.5                          { return .warning }
+            if m > 2.5                          { return .open }
+            if m > 1.5                          { return .warning }
             if m > -openingDelayMin             { return .closed }
             if m > -openingDelayMin - 0.17      { return .opening }
             return .open

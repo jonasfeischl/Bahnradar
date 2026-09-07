@@ -3,96 +3,259 @@ import Combine
 
 struct SchrankenModeView: View {
     var viewModel: CrossingViewModel
+    var locationMonitor: LocationMonitor
     @State private var recorder = CrossingRecorder()
     @State private var showHistory = false
     @State private var showPattern = false
     @State private var tick = 0
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+    @AppStorage("hasSeenSchrankenModeIntro") private var hasSeenSchrankenModeIntro = false
+    @State private var showIntro = false
+
+    /// Ab dieser Entfernung gilt man als "an der Schranke" — verhindert, dass Messungen
+    /// aus der Ferne eingespeist werden und die geteilten Community-Daten verfälschen.
+    private static let presenceRadius: Double = 250
+
+    private var distanceToCrossing: Double? {
+        locationMonitor.distance(to: viewModel.selectedCrossing)
+    }
+
+    private var isAtCrossing: Bool {
+        guard let distance = distanceToCrossing else { return false }
+        return distance <= Self.presenceRadius
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
+            Group {
+                if isAtCrossing {
+                    ScrollView {
+                        VStack(spacing: 24) {
 
-                Spacer()
+                            switch recorder.recorderState {
+                            case .idle:
+                                idleView
 
-                switch recorder.recorderState {
-                case .idle:
-                    idleView
+                            case .closed:
+                                closedView
 
-                case .closed:
-                    closedView
+                            case .selectingType:
+                                EmptyView()  // wird nicht mehr verwendet
 
-                case .selectingType:
-                    EmptyView()  // wird nicht mehr verwendet
+                            case .confirmingTrains(_, let predicted):
+                                confirmTrainsView(predicted: predicted)
+                            }
 
-                case .confirmingTrains(_, let predicted):
-                    confirmTrainsView(predicted: predicted)
-                }
+                            // Historie & Muster
+                            if !recorder.records.isEmpty {
+                                VStack(spacing: 10) {
+                                    Button {
+                                        showHistory = true
+                                    } label: {
+                                        Label("Aufzeichnungen (\(recorder.records.count))", systemImage: "list.bullet.clipboard")
+                                            .font(.subheadline)
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 14)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .cardStyle()
 
-                Spacer()
+                                    Button {
+                                        showPattern = true
+                                    } label: {
+                                        Label("Tages-Muster", systemImage: "chart.bar.xaxis")
+                                            .font(.subheadline)
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 14)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .cardStyle()
+                                }
+                            }
 
-                // Historie & Muster
-                if !recorder.records.isEmpty {
-                    VStack(spacing: 10) {
-                        Button {
-                            showHistory = true
-                        } label: {
-                            Label("Aufzeichnungen (\(recorder.records.count))", systemImage: "list.bullet.clipboard")
-                                .font(.subheadline)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color(.secondarySystemBackground))
-                                .foregroundStyle(.secondary)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            purposeExplanation
                         }
-                        .sheet(isPresented: $showHistory) {
-                            CrossingHistoryView(recorder: recorder, feedback: viewModel.feedback)
-                        }
-
-                        Button {
-                            showPattern = true
-                        } label: {
-                            Label("Tages-Muster", systemImage: "chart.bar.xaxis")
-                                .font(.subheadline)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color(.secondarySystemBackground))
-                                .foregroundStyle(.secondary)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
-                        .sheet(isPresented: $showPattern) {
-                            DailyPatternView(records: recorder.records)
-                        }
+                        .padding()
+                        .padding(.top, 40)
                     }
-                    .padding(.horizontal)
+                } else {
+                    notAvailableView
                 }
             }
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("Schranken-Modus")
             .navigationBarTitleDisplayMode(.inline)
             .onReceive(timer) { _ in tick += 1 }  // View jede Sekunde neu zeichnen
-            .onAppear { recorder.switchCrossing(viewModel.store.selectedId) }
+            .onAppear {
+                recorder.switchCrossing(viewModel.store.selectedId)
+                locationMonitor.startForScreenPresence()
+                if !hasSeenSchrankenModeIntro {
+                    showIntro = true
+                }
+            }
+            .onDisappear {
+                locationMonitor.stopForScreenPresence()
+            }
             .onChange(of: viewModel.store.selectedId) { _, newId in recorder.switchCrossing(newId) }
+            // Bewusst hier auf dem stabilen NavigationStack statt an den Buttons weiter oben,
+            // die nur sichtbar sind wenn `!recorder.records.isEmpty` — sonst reißt "Alle
+            // löschen" (CrossingHistoryView-Toolbar, leert recorder.records) die if-Bedingung
+            // um, während das Sheet noch offen ist, und SwiftUI wirft das Sheet mitten in der
+            // Interaktion ab statt den jetzt-leeren Zustand darin anzuzeigen.
+            .sheet(isPresented: $showHistory) {
+                CrossingHistoryView(recorder: recorder, feedback: viewModel.feedback)
+            }
+            .sheet(isPresented: $showPattern) {
+                DailyPatternView(records: recorder.records)
+            }
+            .fullScreenCover(isPresented: $showIntro) {
+                FeatureIntroScreen(
+                    icon: "record.circle",
+                    title: "Schranken-Modus",
+                    message: "Hier zeichnest du live auf, wann eine Schranke schließt und wieder öffnet. Drücke „Schranke ZU“ sobald du sie live schließen siehst, und „Schranke AUF“ sobald sie wieder öffnet. Aus diesen echten Messungen lernt die App und wird für alle genauer.\n\nDamit die Daten stimmen, funktioniert der Schranken-Modus nur, wenn du dich wirklich in der Nähe der Schranke befindest."
+                ) {
+                    hasSeenSchrankenModeIntro = true
+                    showIntro = false
+                }
+            }
         }
+    }
+
+    // MARK: - Nicht verfügbar (außerhalb des Radius)
+
+    /// Wie weit man dem 100m-Radius schon nähergekommen ist, für die Fortschrittsanzeige
+    /// unten (0 = sehr weit weg oder unbekannt, 1 = am Rand des Radius). Auf das
+    /// 5-fache des Radius gedeckelt, damit die Anzeige bei z.B. 5km nicht komplett leer wirkt.
+    private var approachProgress: Double {
+        guard let distance = distanceToCrossing else { return 0 }
+        let cappedRange = Self.presenceRadius * 5
+        return 1 - min(1, max(0, (distance - Self.presenceRadius) / (cappedRange - Self.presenceRadius)))
+    }
+
+    private var notAvailableView: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                Spacer(minLength: 24)
+
+                ZStack {
+                    Circle()
+                        .fill(Color.brand.opacity(0.15))
+                        .frame(width: 108, height: 108)
+                    Image(systemName: "location.slash.fill")
+                        .font(.system(size: 44))
+                        .foregroundStyle(Color.brand)
+                        .symbolRenderingMode(.hierarchical)
+                }
+
+                VStack(spacing: 8) {
+                    Text("Nicht verfügbar")
+                        .font(.title2.bold())
+                    Text("Du bist noch nicht an \(viewModel.selectedCrossing.name)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                VStack(spacing: 14) {
+                    if let distance = distanceToCrossing {
+                        VStack(spacing: 8) {
+                            HStack {
+                                Text("Entfernung")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text("ca. \(Int(distance)) m")
+                                    .font(.subheadline.bold().monospacedDigit())
+                            }
+                            ProgressView(value: approachProgress)
+                                .tint(Color.brand)
+                            HStack {
+                                Text("0 m")
+                                Spacer()
+                                Text("\(Int(Self.presenceRadius)) m Radius")
+                            }
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        }
+                    } else {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text("Standort wird ermittelt…")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 4)
+                    }
+                }
+                .padding(16)
+                .cardStyle()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Warum nur vor Ort?", systemImage: "checkmark.shield.fill")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(Color.brand)
+                    Text("Der Schranken-Modus funktioniert nur direkt an der Schranke (im Umkreis von \(Int(Self.presenceRadius))m). So bleiben die Messungen echt — niemand kann aus der Ferne falsche Aufzeichnungen einspeisen und die geteilten Daten für alle verfälschen.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .cardStyle()
+
+                Spacer(minLength: 24)
+            }
+            .padding()
+        }
+    }
+
+    // MARK: - Zweck-Erklärung
+
+    private var purposeExplanation: some View {
+        VStack(spacing: 6) {
+            Label("Wofür ist der Schranken-Modus?", systemImage: "info.circle.fill")
+                .font(.caption.bold())
+                .foregroundStyle(.blue)
+            Text("Drücke „Schranke ZU“ und „Schranke AUF“ wenn du live an der Schranke stehst und sie tatsächlich schließen bzw. öffnen siehst. Aus diesen echten Messungen lernt die App und wird für alle genauer.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.blue.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.blue.opacity(0.2), lineWidth: 1)
+        )
     }
 
     // MARK: - Idle
 
     private var idleView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 64))
-                .foregroundStyle(.green)
+        VStack(spacing: 20) {
+            VStack(spacing: 14) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 60))
+                    .foregroundStyle(.green)
+                    .symbolRenderingMode(.hierarchical)
 
-            Text("Schranke ist offen")
-                .font(.title2.bold())
+                Text("Schranke ist offen")
+                    .font(.title2.bold())
 
-            Text("Drücke den Knopf sobald\ndie Schranke schließt.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                Text("Drücke den Knopf sobald\ndie Schranke schließt.")
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 32)
+            .cardStyle()
 
             // Letztes Messergebnis anzeigen
             if let m = lastMeasurement {
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     Image(systemName: "ruler")
                         .foregroundStyle(.blue)
                     VStack(alignment: .leading, spacing: 2) {
@@ -111,60 +274,51 @@ struct SchrankenModeView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .padding(12)
+                .padding(14)
                 .background(Color.blue.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .padding(.horizontal)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
             Button {
                 recorder.markClosed(nextEvents: viewModel.nextEvents)
             } label: {
-                Text("Schranke ZU 🔴")
-                    .font(.title2.bold())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
-                    .background(Color.red)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                    .padding(.horizontal)
+                Label("Schranke ZU", systemImage: "xmark.octagon.fill")
             }
-            .padding(.top, 8)
+            .buttonStyle(.bigAction(.red))
         }
     }
 
     // MARK: - Geschlossen (Timer läuft)
 
     private var closedView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "xmark.octagon.fill")
-                .font(.system(size: 64))
-                .foregroundStyle(.red)
+        VStack(spacing: 20) {
+            VStack(spacing: 14) {
+                Image(systemName: "xmark.octagon.fill")
+                    .font(.system(size: 60))
+                    .foregroundStyle(.red)
+                    .symbolRenderingMode(.hierarchical)
 
-            Text("Schranke ist ZU")
-                .font(.title2.bold())
+                Text("Schranke ist ZU")
+                    .font(.title2.bold())
 
-            // Timer
-            Text(timerText)
-                .font(.system(size: 52, weight: .bold, design: .monospaced))
-                .foregroundStyle(.red)
-                .contentTransition(.numericText())
-                .animation(.linear(duration: 0.3), value: tick)
+                // Timer
+                Text(timerText)
+                    .font(.system(size: 52, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.red)
+                    .contentTransition(.numericText())
+                    .animation(.linear(duration: 0.3), value: tick)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 28)
+            .cardStyle()
 
             Button {
                 recorder.markOpenAndConfirm(feedback: viewModel.feedback, allEvents: viewModel.nextEvents)
             } label: {
-                Text("Schranke AUF 🟢")
-                    .font(.title2.bold())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
-                    .background(Color.green)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                    .padding(.horizontal)
+                Label("Schranke AUF", systemImage: "checkmark.circle.fill")
             }
-            .padding(.top, 8)
+            .buttonStyle(.bigAction(.green))
 
             Button("Abbrechen", role: .cancel) {
                 recorder.cancel()
@@ -188,16 +342,22 @@ struct SchrankenModeView: View {
     @ViewBuilder
     private func confirmTrainsView(predicted: [CrossingEvent]) -> some View {
         VStack(spacing: 20) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 56))
-                .foregroundStyle(.blue)
+            VStack(spacing: 12) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 52))
+                    .foregroundStyle(.blue)
+                    .symbolRenderingMode(.hierarchical)
 
-            Text(predicted.count == 1 ? "War der Zug da?" : "Welche Züge waren da?")
-                .font(.title2.bold())
+                Text(predicted.count == 1 ? "War der Zug da?" : "Welche Züge waren da?")
+                    .font(.title2.bold())
 
-            Text("Bestätige welche Züge tatsächlich gefahren sind.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                Text("Bestätige welche Züge tatsächlich gefahren sind.")
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+            .cardStyle()
 
             VStack(spacing: 10) {
                 ForEach(predicted) { event in
@@ -266,7 +426,6 @@ struct SchrankenModeView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
             }
-            .padding(.horizontal)
 
             // Bestätigen Button
             let hasRealSelection = !confirmedEvents.subtracting(["sonderzug"]).isEmpty
@@ -282,15 +441,9 @@ struct SchrankenModeView: View {
                 applyCalibrationIfReady()
                 captureMeasurement()
             } label: {
-                Text("Bestätigen ✓")
-                    .font(.title3.bold())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(canConfirm ? Color.blue : Color.gray)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .padding(.horizontal)
+                Label("Bestätigen", systemImage: "checkmark")
             }
+            .buttonStyle(.bigAction(canConfirm ? .blue : .gray))
             .disabled(!canConfirm)
 
             Button("Überspringen", role: .cancel) {
@@ -447,5 +600,5 @@ struct CrossingHistoryView: View {
 }
 
 #Preview {
-    SchrankenModeView(viewModel: CrossingViewModel())
+    SchrankenModeView(viewModel: CrossingViewModel(), locationMonitor: LocationMonitor())
 }

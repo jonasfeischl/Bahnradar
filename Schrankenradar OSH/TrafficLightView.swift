@@ -2,6 +2,10 @@ import SwiftUI
 
 struct TrafficLightView: View {
     let status: CrossingStatus
+    /// Beim allerersten Anzeigen (App-Start, bevor echte Daten geladen sind) soll die
+    /// Ampel sofort im richtigen Zustand dastehen statt sichtbar in die Farbe zu
+    /// überblenden — nur spätere, echte Statuswechsel während der Nutzung animieren.
+    var animated: Bool = true
     @State private var pulse = false
 
     var body: some View {
@@ -17,7 +21,7 @@ struct TrafficLightView: View {
         .background(Color(.systemGray6))
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .shadow(radius: 8)
-        .animation(.easeInOut(duration: 0.4), value: status)
+        .animation(animated ? .easeInOut(duration: 0.4) : nil, value: status)
         .onAppear  { startPulse() }
         .onChange(of: status) { _, _ in startPulse() }
     }

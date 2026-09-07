@@ -5,11 +5,29 @@ import CoreLocation
 
 struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
     let id: String
-    let name: String          // "Lechenauer Str."
+    let name: String          // "Lerchenauer Str."
     let subtitle: String      // "Feldmoching"
     let stationEVA: String    // DB Stations-ID
+    /// MVG-Stations-ID (Format "de:09184:2000") für die bevorzugte Verspätungsquelle MVGService —
+    /// ermittelt über https://www.mvg.de/api/bgw-pt/v3/locations?query=<Stationsname>. nil = keine
+    /// MVG-Abdeckung bekannt, dann bleibt DBs Realtime-Changes-API alleinige Verspätungsquelle.
+    var mvgGlobalId: String? = nil
+    /// Ob MVG für diese Station Regionalzug-Daten (transportTypes=BAHN) führt — per
+    /// Stationsmetadaten verifiziert (2026-07-20): Feldmoching hat `["BAHN","SBAHN","UBAHN",
+    /// "BUS"]`, Oberschleißheim nur `["SBAHN","BUS"]`, also strukturell NIE BAHN-Daten. Ohne
+    /// dieses Flag fragte TrainAPIService BAHN blind für JEDEN Übergang ab (auch dort, wo es nie
+    /// Daten gibt) — reine Verschwendung, und führte live dazu, dass MVG die App wegen der
+    /// dadurch verdoppelten Anfragen mit HTTP 509 (Rate-Limit) abgewiesen hat, was kollateral
+    /// auch die eigentlich funktionierende SBAHN-Abfrage destabilisiert hat (User-Report
+    /// 2026-07-22: "jetzt mvv grau angezeigt"). Jetzt wird BAHN nur noch abgefragt, wo es
+    /// tatsächlich Daten geben kann.
+    var mvgSupportsRegionalTrains: Bool = false
     let latitude: Double
     let longitude: Double
+    /// Erfassungsradius für die GPS-Auto-Kalibrierung (detectCrossingPassage): wie nah muss
+    /// die Zug-Trajektorie an latitude/longitude vorbeikommen, damit eine Durchfahrt gezählt
+    /// wird. Standard 200m; höher für Übergänge deren hinterlegte Koordinate ungenauer ist.
+    var gpsToleranceMeters: Double = 200
     var offsetToMunich: Double    // Sekunden: Abfahrt → Schranke (München-Richtung)
     var offsetToFreising: Double  // Sekunden: negativ, Schranke vor Abfahrt
     let onlyS1: Bool              // true = nur S1, false = alle S-Bahnen (z.B. Feldmoching)
@@ -36,26 +54,75 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
     var kalmanVarianceMunich:   Double = 100.0
     var kalmanVarianceFreising: Double = 100.0
 
-    // Tageszeit-spezifische Offsets ("08" → 195.3s) — lernt Stoßzeit vs. Nebenzeit
+    // Tageszeit- UND wochentagsspezifische Offsets (Schlüssel z.B. "WD08"/"WE08", siehe
+    // hourlyKey) — lernt Stoßzeit vs. Nebenzeit UND Werktag vs. Wochenende getrennt, da sich
+    // S-Bahn-Taktung/Zugfolge am Wochenende oft spürbar unterscheidet und ein gemeinsamer
+    // Stunden-Bucket (z.B. Samstag-08 + Montag-08 zusammen) die Kalman-Schätzung unnötig
+    // verrauscht hätte.
     var hourlyOffsetsMunich:   [String: Double] = [:]
     var hourlyOffsetsFreising: [String: Double] = [:]
 
+    /// True für Samstag/Sonntag (Calendar-Weekday 1=So, 7=Sa, kalenderunabhängig von der
+    /// Locale-Woche-Start-Einstellung — .weekday zählt immer ab Sonntag=1).
+    static func isWeekend(_ date: Date) -> Bool {
+        let weekday = Calendar.current.component(.weekday, from: date)
+        return weekday == 1 || weekday == 7
+    }
+
+    /// Schlüssel für hourlyOffsetsMunich/-Freising: Stunde + Werktag/Wochenende kombiniert.
+    static func hourlyKey(hour: Int, isWeekend: Bool) -> String {
+        "\(isWeekend ? "WE" : "WD")\(String(format: "%02d", hour))"
+    }
+
+    /// Mindestanzahl an Rohmessungen, ab der ein Community-Wert vertraut wird — dieselbe
+    /// Schwelle wie bei eigenen Messungen. Ohne das könnte ein einzelner Ausreißer (z.B. ein
+    /// GPS-Messfehler eines anderen Nutzers) die Vorhersage für alle sofort verfälschen.
+    static let minCommunitySamples = 3
+
+    /// An der Dachauer Str. laufen zwei fest verdrahtete, von Hand kalibrierte Korrekturen
+    /// (siehe CrossingViewModel.buildEvents, "TEMPORÄRER HARDCODE"-Kommentare) — die sind gegen
+    /// einen bestimmten Community-/Standard-Basiswert justiert. Die GPS-Auto-Kalibrierung läuft
+    /// aber unabhängig davon im Hintergrund WEITER (jede erkannte Durchfahrt aktualisiert
+    /// measuredOffsetToMunich/-Freising) und hätte, sobald sie ≥3 Messungen erreicht, plötzlich
+    /// Priorität über den Community-/Standardwert bekommen — die Basis unter dem Hardcode hätte
+    /// sich dann unbemerkt verschieben können, obwohl der Hardcode unverändert blieb. User-Report
+    /// 2026-07-20: "manchmal passt münchen offset nicht" + "manchmal kommt gps noch immer" (nach
+    /// der bereits erfolgten Abschaltung von GPS als direkter Zeitquelle) passt genau zu diesem
+    /// Mechanismus. Fix: für osh_dachauer wird die GPS-Auto-Kalibrierung hier bewusst ignoriert
+    /// (Basis bleibt stabil bei Community/Standard), bis die Hardcodes irgendwann durch sauber
+    /// neu kalibrierte Lerndaten ersetzt werden. Feldmoching hat KEINE Hardcodes und braucht die
+    /// GPS-Auto-Kalibrierung weiterhin als einzige Kalibrierungsquelle — dort unverändert.
+    private var usesFrozenBase: Bool { id == "osh_dachauer" }
+
     /// Besten verfügbaren Offset zurückgeben.
-    /// Priorität: Tageszeit-GPS (≥3) > allg. GPS (≥3) > Community > statisch.
+    /// Priorität: Tageszeit+Wochentag-GPS (≥3) > allg. GPS (≥3) > Community (≥3) > statisch.
+    /// Ausnahme: osh_dachauer überspringt beide GPS-Stufen, siehe usesFrozenBase.
     func bestOffset(toMunich: Bool,
-                    communityMunich:   Double? = nil,
-                    communityFreising: Double? = nil,
-                    hour: Int?         = nil) -> Double {
+                    communityMunich:      Double? = nil,
+                    communityMunichCount: Int     = 0,
+                    communityFreising:      Double? = nil,
+                    communityFreisingCount: Int     = 0,
+                    at: Date?          = nil) -> Double {
+        let hourlyKey: String? = at.map {
+            Self.hourlyKey(hour: Calendar.current.component(.hour, from: $0), isWeekend: Self.isWeekend($0))
+        }
         if toMunich {
-            if let h = hour, autoMeasurementsMunich >= 3,
-               let hourly = hourlyOffsetsMunich[String(format: "%02d", h)] { return hourly }
-            if let m = measuredOffsetToMunich, autoMeasurementsMunich >= 3 { return m }
-            if let c = communityMunich { return c }
+            if !usesFrozenBase {
+                // Tageszeit+Wochentag-Offset erst ab 3 Messungen (braucht genug Stichproben
+                // insgesamt — die einzelnen Stunden/Wochentag-Buckets selbst haben keine eigene
+                // Mindestanzahl, siehe Kommentar bei applyAutoOffset).
+                if let key = hourlyKey, autoMeasurementsMunich >= 3,
+                   let hourly = hourlyOffsetsMunich[key] { return hourly }
+                if let m = measuredOffsetToMunich, autoMeasurementsMunich >= 3 { return m }
+            }
+            if let c = communityMunich, communityMunichCount >= Self.minCommunitySamples { return c }
         } else {
-            if let h = hour, autoMeasurementsFreising >= 3,
-               let hourly = hourlyOffsetsFreising[String(format: "%02d", h)] { return hourly }
-            if let m = measuredOffsetToFreising, autoMeasurementsFreising >= 3 { return m }
-            if let c = communityFreising { return c }
+            if !usesFrozenBase {
+                if let key = hourlyKey, autoMeasurementsFreising >= 3,
+                   let hourly = hourlyOffsetsFreising[key] { return hourly }
+                if let m = measuredOffsetToFreising, autoMeasurementsFreising >= 3 { return m }
+            }
+            if let c = communityFreising, communityFreisingCount >= Self.minCommunitySamples { return c }
         }
         return toMunich ? offsetToMunich : offsetToFreising
     }
@@ -63,14 +130,16 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
     /// Quelle des aktuell genutzten Offsets für Anzeige in der UI.
     enum OffsetSource { case local, community, estimate }
     func offsetSource(toMunich: Bool,
-                      communityMunich:   Double? = nil,
-                      communityFreising: Double? = nil) -> OffsetSource {
+                      communityMunich:      Double? = nil,
+                      communityMunichCount: Int     = 0,
+                      communityFreising:      Double? = nil,
+                      communityFreisingCount: Int     = 0) -> OffsetSource {
         if toMunich {
-            if autoMeasurementsMunich >= 3 && measuredOffsetToMunich != nil { return .local }
-            if communityMunich != nil { return .community }
+            if !usesFrozenBase && autoMeasurementsMunich >= 3 && measuredOffsetToMunich != nil { return .local }
+            if communityMunich != nil && communityMunichCount >= Self.minCommunitySamples { return .community }
         } else {
-            if autoMeasurementsFreising >= 3 && measuredOffsetToFreising != nil { return .local }
-            if communityFreising != nil { return .community }
+            if !usesFrozenBase && autoMeasurementsFreising >= 3 && measuredOffsetToFreising != nil { return .local }
+            if communityFreising != nil && communityFreisingCount >= Self.minCommunitySamples { return .community }
         }
         return .estimate
     }
@@ -84,13 +153,27 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
     var voiceEnabled: Bool
     var radiusMeters: Double
     // Ansage-Template mit Platzhaltern:
+    // {uebergang} → "Oberschleißheimer Schranke" (gesprochener Name, siehe spokenCrossingName)
     // {status}    → "Schranke schließt bald" / "Schranke geschlossen" etc.
     // {linie}     → "S1"
     // {richtung}  → "München"
     // {zeit}      → "in 2 Minuten" / "in 45 Sekunden"
     var announcementTemplate: String
 
-    static let defaultTemplate = "{status}. {linie} Richtung {richtung} {zeit}."
+    static let defaultTemplate = "{uebergang}. {status}. {linie} Richtung {richtung} {zeit}."
+
+    /// Gesprochener Name für Sprachansagen — dieselbe Benennung wie in den Siri-Kurzbefehlen
+    /// (SiriIntents.swift), damit die Ansage konsistent klingt ("Oberschleißheimer Schranke"
+    /// statt des kurzen UI-Namens "Dachauer Str.").
+    var spokenCrossingName: String {
+        switch id {
+        case "osh_dachauer":                return "Oberschleißheimer Schranke"
+        case "feldmoching_lerchenauer1":      return "erste Feldmochinger Schranke"
+        case "feldmoching_lerchenauer2":      return "zweite Feldmochinger Schranke"
+        case "feldmoching_feldmochinger":    return "Fasanerier Schranke"
+        default:                             return "\(subtitle) Schranke"
+        }
+    }
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -104,9 +187,16 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
             id: "osh_dachauer",
             name: "Dachauer Str.",
             subtitle: "Oberschleißheim",
-            stationEVA: "8004158",
-            latitude: 48.2508,
-            longitude: 11.5583,
+            // War fälschlich "8004158" (falsche Station) — per DB-API-Stationssuche verifiziert:
+            // die echte EVA für Oberschleißheim ist 8004580. Der Zahlendreher hatte zur Folge,
+            // dass die App die ganze Zeit Fahrplandaten einer anderen Station abgefragt hat
+            // (deshalb tauchte dort z.B. nie eine S1 auf, obwohl geOps sie live bestätigte).
+            stationEVA: "8004580",
+            mvgGlobalId: "de:09184:2000",
+            // Vor-Ort per GPS nachgemessen (48°15'02.8"N 11°33'13.5"E) — alte Koordinate hatte
+            // beim Längengrad ca. 337m Fehler, dadurch kam nie eine Trajektorie <200m heran.
+            latitude: 48.250778,
+            longitude: 11.553750,
             offsetToMunich: 180,
             offsetToFreising: -180,
             onlyS1: true,
@@ -116,10 +206,14 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
         ),
 
         CrossingLocation(
-            id: "feldmoching_lechenauer1",
-            name: "Lechenauer Str. (1)",
+            id: "feldmoching_lerchenauer1",
+            name: "Lerchenauer Str. (1)",
             subtitle: "Feldmoching",
-            stationEVA: "8004159",
+            // War fälschlich "8004159" — per DB-API-Stationssuche verifiziert: die echte EVA
+            // für München-Feldmoching ist 8004147.
+            stationEVA: "8004147",
+            mvgGlobalId: "de:09162:320",
+            mvgSupportsRegionalTrains: true,
             latitude: 48.205056,
             longitude: 11.537028,
             // Crossing liegt NÖRDLICH von Feldmoching Station (zwischen Feldmoching + OSH)
@@ -134,10 +228,14 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
         ),
 
         CrossingLocation(
-            id: "feldmoching_lechenauer2",
-            name: "Lechenauer Str. (2)",
+            id: "feldmoching_lerchenauer2",
+            name: "Lerchenauer Str. (2)",
             subtitle: "Feldmoching",
-            stationEVA: "8004159",
+            // War fälschlich "8004159" — per DB-API-Stationssuche verifiziert: die echte EVA
+            // für München-Feldmoching ist 8004147.
+            stationEVA: "8004147",
+            mvgGlobalId: "de:09162:320",
+            mvgSupportsRegionalTrains: true,
             latitude: 48.202379,
             longitude: 11.540786,
             offsetToMunich: -90,
@@ -152,7 +250,11 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
             id: "feldmoching_feldmochinger",
             name: "Feldmochinger Str.",
             subtitle: "Fasanerie",
-            stationEVA: "8004159",
+            // War fälschlich "8004159" — per DB-API-Stationssuche verifiziert: die echte EVA
+            // für München-Feldmoching ist 8004147.
+            stationEVA: "8004147",
+            mvgGlobalId: "de:09162:320",
+            mvgSupportsRegionalTrains: true,
             latitude: 48.196908,
             longitude: 11.524508,
             offsetToMunich: 30,
@@ -203,6 +305,26 @@ final class CrossingsStore {
             crossings = CrossingLocation.all
         }
         selectedId = UserDefaults.standard.string(forKey: "selected_crossing") ?? CrossingLocation.all[0].id
+
+        // Einmaliger Reset: alle stationEVA-Codes wurden korrigiert (waren fälschlich mit
+        // einer komplett anderen Station verknüpft). Jede zuvor GELERNTE Offset-Kalibrierung
+        // (Kalman-Filter, Tageszeit-Werte) basiert also auf Abfahrtszeiten der FALSCHEN
+        // Station und ist jetzt verzerrt/wertlos — sie würde sonst weiter bevorzugt vor dem
+        // (korrekten) Standardwert genutzt und die Vorhersage systematisch verschieben.
+        if !UserDefaults.standard.bool(forKey: "calibrationResetAfterEVAFix_v1") {
+            for idx in crossings.indices {
+                crossings[idx].measuredOffsetToMunich   = nil
+                crossings[idx].measuredOffsetToFreising = nil
+                crossings[idx].autoMeasurementsMunich   = 0
+                crossings[idx].autoMeasurementsFreising = 0
+                crossings[idx].kalmanVarianceMunich     = 100.0
+                crossings[idx].kalmanVarianceFreising   = 100.0
+                crossings[idx].hourlyOffsetsMunich      = [:]
+                crossings[idx].hourlyOffsetsFreising    = [:]
+            }
+            UserDefaults.standard.set(true, forKey: "calibrationResetAfterEVAFix_v1")
+            saveSettings()
+        }
     }
 
     func select(_ crossing: CrossingLocation) {

@@ -56,7 +56,7 @@ enum CrossingStatus: Equatable {
 
 // MARK: - Train
 
-enum TrainDirection {
+enum TrainDirection: String, Codable {
     case toMunich
     case toFreising
 
@@ -77,6 +77,11 @@ struct TrainDeparture: Identifiable {
     let actualTime: Date
     let delayMinutes: Int
     let isArrival: Bool
+    /// Grobes Fahrtziel ("freising"/"flughafen"), wenn bekannt — nil sonst. Verhindert, dass
+    /// zwei verschiedene S1-Züge (Richtung Freising vs. Richtung Flughafen, die sich hinter
+    /// Neufahrn trennen) fälschlich als derselbe Zug zusammengefasst werden, wenn sie zufällig
+    /// zur exakt selben Minute fahren (siehe dedupeCloseEvents/stabilize in CrossingViewModel).
+    var finalDestinationHint: String? = nil
 }
 
 // MARK: - Crossing Event
@@ -87,6 +92,9 @@ struct CrossingEvent: Identifiable {
     let estimatedCrossingTime: Date
     /// Wie lange die Schranke nach Zugdurchfahrt geschlossen bleibt (in Minuten)
     let openingDelayMinutes: Double
+    /// true = Vorhersage beruht auf frischen Geops-Echtzeit-GPS-Daten (Trajektorie
+    /// oder Geops-Match). false = nur Fahrplan + statischer/gelernter Offset.
+    var isLiveData: Bool = false
 
     func minutesUntil(from date: Date) -> Double {
         estimatedCrossingTime.timeIntervalSince(date) / 60

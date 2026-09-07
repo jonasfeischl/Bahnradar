@@ -5,17 +5,17 @@ import Foundation
 
 enum CrossingOption: String, AppEnum {
     case oshdachauer       = "osh_dachauer"
-    case lechenauer1       = "feldmoching_lechenauer1"
-    case lechenauer2       = "feldmoching_lechenauer2"
+    case lerchenauer1       = "feldmoching_lerchenauer1"
+    case lerchenauer2       = "feldmoching_lerchenauer2"
     case feldmochinger     = "feldmoching_feldmochinger"
 
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "Bahnübergang"
 
     static var caseDisplayRepresentations: [CrossingOption: DisplayRepresentation] = [
         .oshdachauer:   DisplayRepresentation(title: "Oberschleißheimer Schranke"),
-        .lechenauer1:   DisplayRepresentation(title: "erste Lechenauer Schranke"),
-        .lechenauer2:   DisplayRepresentation(title: "zweite Lechenauer Schranke"),
-        .feldmochinger: DisplayRepresentation(title: "Feldmochinger Schranke"),
+        .lerchenauer1:   DisplayRepresentation(title: "erste Feldmochinger Schranke"),
+        .lerchenauer2:   DisplayRepresentation(title: "zweite Feldmochinger Schranke"),
+        .feldmochinger: DisplayRepresentation(title: "Fasanerier Schranke"),
     ]
 
     var crossingLocation: CrossingLocation? {
@@ -25,9 +25,9 @@ enum CrossingOption: String, AppEnum {
     var spokenName: String {
         switch self {
         case .oshdachauer:   return "Dachauer Straße in Oberschleißheim"
-        case .lechenauer1:   return "ersten Lechenauer Straße"
-        case .lechenauer2:   return "zweiten Lechenauer Straße"
-        case .feldmochinger: return "Feldmochinger Straße"
+        case .lerchenauer1:   return "ersten Feldmochinger Straße"
+        case .lerchenauer2:   return "zweiten Feldmochinger Straße"
+        case .feldmochinger: return "Fasanerier Straße"
         }
     }
 }
@@ -125,40 +125,40 @@ struct OshNextTrainIntent: AppIntent {
     }
 }
 
-struct Lechenauer1StatusIntent: AppIntent {
-    static var title: LocalizedStringResource = "Status erste Lechenauer Schranke"
+struct Lerchenauer1StatusIntent: AppIntent {
+    static var title: LocalizedStringResource = "Status erste Feldmochinger Schranke"
     func perform() async throws -> some ProvidesDialog & ReturnsValue<String> {
-        let msg = "Der Bahnübergang \(CrossingOption.lechenauer1.spokenName) ist \(await statusText(for: CrossingOption.lechenauer1.rawValue))."
+        let msg = "Der Bahnübergang \(CrossingOption.lerchenauer1.spokenName) ist \(await statusText(for: CrossingOption.lerchenauer1.rawValue))."
         return .result(value: msg, dialog: IntentDialog(stringLiteral: msg))
     }
 }
 
-struct Lechenauer1NextTrainIntent: AppIntent {
-    static var title: LocalizedStringResource = "Nächster Zug erste Lechenauer"
+struct Lerchenauer1NextTrainIntent: AppIntent {
+    static var title: LocalizedStringResource = "Nächster Zug erste Feldmochinger"
     func perform() async throws -> some ProvidesDialog & ReturnsValue<String> {
-        let msg = await nextTrainMessage(for: .lechenauer1)
+        let msg = await nextTrainMessage(for: .lerchenauer1)
         return .result(value: msg, dialog: IntentDialog(stringLiteral: msg))
     }
 }
 
-struct Lechenauer2StatusIntent: AppIntent {
-    static var title: LocalizedStringResource = "Status zweite Lechenauer Schranke"
+struct Lerchenauer2StatusIntent: AppIntent {
+    static var title: LocalizedStringResource = "Status zweite Feldmochinger Schranke"
     func perform() async throws -> some ProvidesDialog & ReturnsValue<String> {
-        let msg = "Der Bahnübergang \(CrossingOption.lechenauer2.spokenName) ist \(await statusText(for: CrossingOption.lechenauer2.rawValue))."
+        let msg = "Der Bahnübergang \(CrossingOption.lerchenauer2.spokenName) ist \(await statusText(for: CrossingOption.lerchenauer2.rawValue))."
         return .result(value: msg, dialog: IntentDialog(stringLiteral: msg))
     }
 }
 
-struct Lechenauer2NextTrainIntent: AppIntent {
-    static var title: LocalizedStringResource = "Nächster Zug zweite Lechenauer"
+struct Lerchenauer2NextTrainIntent: AppIntent {
+    static var title: LocalizedStringResource = "Nächster Zug zweite Feldmochinger"
     func perform() async throws -> some ProvidesDialog & ReturnsValue<String> {
-        let msg = await nextTrainMessage(for: .lechenauer2)
+        let msg = await nextTrainMessage(for: .lerchenauer2)
         return .result(value: msg, dialog: IntentDialog(stringLiteral: msg))
     }
 }
 
 struct FeldmochingerStatusIntent: AppIntent {
-    static var title: LocalizedStringResource = "Status Feldmochinger Schranke"
+    static var title: LocalizedStringResource = "Status Fasanerier Schranke"
     func perform() async throws -> some ProvidesDialog & ReturnsValue<String> {
         let msg = "Der Bahnübergang \(CrossingOption.feldmochinger.spokenName) ist \(await statusText(for: CrossingOption.feldmochinger.rawValue))."
         return .result(value: msg, dialog: IntentDialog(stringLiteral: msg))
@@ -166,7 +166,7 @@ struct FeldmochingerStatusIntent: AppIntent {
 }
 
 struct FeldmochingerNextTrainIntent: AppIntent {
-    static var title: LocalizedStringResource = "Nächster Zug Feldmoching"
+    static var title: LocalizedStringResource = "Nächster Zug Fasanerie"
     func perform() async throws -> some ProvidesDialog & ReturnsValue<String> {
         let msg = await nextTrainMessage(for: .feldmochinger)
         return .result(value: msg, dialog: IntentDialog(stringLiteral: msg))
@@ -201,69 +201,69 @@ struct CrossingAppShortcuts: AppShortcutsProvider {
             systemImageName: "tram.fill"
         )
 
-        // Lechenauer Straße 1
+        // Feldmochinger Straße 1
         AppShortcut(
-            intent: Lechenauer1StatusIntent(),
+            intent: Lerchenauer1StatusIntent(),
             phrases: [
-                "Status erste Lechenauer Schranke in \(.applicationName)",
-                "Erste Lechenauer Schranke in \(.applicationName)",
-                "Ist die erste Lechenauer Schranke offen in \(.applicationName)",
+                "Status erste Feldmochinger Schranke in \(.applicationName)",
+                "Erste Feldmochinger Schranke in \(.applicationName)",
+                "Ist die erste Feldmochinger Schranke offen in \(.applicationName)",
             ],
-            shortTitle: "Schranke Lechenauer 1",
+            shortTitle: "Schranke Feldmochinger 1",
             systemImageName: "train.side.front.car"
         )
 
         AppShortcut(
-            intent: Lechenauer1NextTrainIntent(),
+            intent: Lerchenauer1NextTrainIntent(),
             phrases: [
-                "Nächster Zug erste Lechenauer in \(.applicationName)",
-                "Wann schließt die erste Lechenauer Schranke in \(.applicationName)",
+                "Nächster Zug erste Feldmochinger in \(.applicationName)",
+                "Wann schließt die erste Feldmochinger Schranke in \(.applicationName)",
             ],
-            shortTitle: "Zug Lechenauer 1",
+            shortTitle: "Zug Feldmochinger 1",
             systemImageName: "tram.fill"
         )
 
-        // Lechenauer Straße 2
+        // Feldmochinger Straße 2
         AppShortcut(
-            intent: Lechenauer2StatusIntent(),
+            intent: Lerchenauer2StatusIntent(),
             phrases: [
-                "Status zweite Lechenauer Schranke in \(.applicationName)",
-                "Zweite Lechenauer Schranke in \(.applicationName)",
-                "Ist die zweite Lechenauer Schranke offen in \(.applicationName)",
+                "Status zweite Feldmochinger Schranke in \(.applicationName)",
+                "Zweite Feldmochinger Schranke in \(.applicationName)",
+                "Ist die zweite Feldmochinger Schranke offen in \(.applicationName)",
             ],
-            shortTitle: "Schranke Lechenauer 2",
+            shortTitle: "Schranke Feldmochinger 2",
             systemImageName: "train.side.front.car"
         )
 
         AppShortcut(
-            intent: Lechenauer2NextTrainIntent(),
+            intent: Lerchenauer2NextTrainIntent(),
             phrases: [
-                "Nächster Zug zweite Lechenauer in \(.applicationName)",
-                "Wann schließt die zweite Lechenauer Schranke in \(.applicationName)",
+                "Nächster Zug zweite Feldmochinger in \(.applicationName)",
+                "Wann schließt die zweite Feldmochinger Schranke in \(.applicationName)",
             ],
-            shortTitle: "Zug Lechenauer 2",
+            shortTitle: "Zug Feldmochinger 2",
             systemImageName: "tram.fill"
         )
 
-        // Feldmoching
+        // Fasanerie
         AppShortcut(
             intent: FeldmochingerStatusIntent(),
             phrases: [
-                "Status Feldmochinger Schranke in \(.applicationName)",
-                "Feldmochinger Schranke in \(.applicationName)",
-                "Ist die Feldmochinger Schranke offen in \(.applicationName)",
+                "Status Fasanerier Schranke in \(.applicationName)",
+                "Fasanerier Schranke in \(.applicationName)",
+                "Ist die Fasanerier Schranke offen in \(.applicationName)",
             ],
-            shortTitle: "Schranke Feldmoching",
+            shortTitle: "Schranke Fasanerie",
             systemImageName: "train.side.front.car"
         )
 
         AppShortcut(
             intent: FeldmochingerNextTrainIntent(),
             phrases: [
-                "Nächster Zug Feldmoching in \(.applicationName)",
-                "Wann schließt die Feldmochinger Schranke in \(.applicationName)",
+                "Nächster Zug Fasanerie in \(.applicationName)",
+                "Wann schließt die Fasanerier Schranke in \(.applicationName)",
             ],
-            shortTitle: "Zug Feldmoching",
+            shortTitle: "Zug Fasanerie",
             systemImageName: "tram.fill"
         )
     }

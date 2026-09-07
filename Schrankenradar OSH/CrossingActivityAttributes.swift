@@ -1,33 +1,27 @@
-import ActivityKit
 import Foundation
 
 // Muss in BEIDEN Targets eingebunden sein:
 // → Schrankenradar OSH (Haupt-App)
 // → SchrankenradarWidget (Widget Extension)
 
-struct CrossingActivityAttributes: ActivityAttributes {
+// MARK: - Geteilte Widget-Daten (App → Widget via App Group)
+// Das Widget kann selbst kein Geops (WebSocket) nutzen. Die App berechnet die Events
+// mit voller Geops-Genauigkeit (Live-Zeiten + GPS-Offsets + Trajectory) und legt sie hier
+// ab. Das Widget liest sie und nutzt nur seinen eigenen DB-Fetch als Fallback.
 
-    // Statisch — ändert sich nicht während der Activity läuft
+struct SharedTrainEvent: Codable {
+    let line: String
+    let directionIsMunich: Bool
+    let crossingTime: Date
+    let delayMinutes: Int
+}
+
+struct SharedWidgetPayload: Codable {
+    let crossingId: String
     let crossingName: String
+    let crossingSubtitle: String
+    let generatedAt: Date
+    let events: [SharedTrainEvent]
 
-    // Dynamisch — wird jede Minute aktualisiert
-    struct ContentState: Codable, Hashable {
-        /// Zeitpunkt wenn Schranke ROT wird (crossingTime - 60s)
-        var closingTime: Date
-        /// Zeitpunkt wenn Schranke wieder öffnet (crossingTime + 10s)
-        var openingTime: Date
-        /// Aktueller Status als String
-        var statusRaw: String   // "open", "warning", "closed", "opening"
-        var trainLine: String
-        var trainDirection: String
-
-        var statusLabel: String {
-            switch statusRaw {
-            case "warning": return "Schließt bald"
-            case "closed":  return "Geschlossen"
-            case "opening": return "Öffnet gleich"
-            default:        return "Offen"
-            }
-        }
-    }
+    static let userDefaultsKey = "widget_sharedEvents_v1"
 }

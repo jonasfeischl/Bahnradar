@@ -11,6 +11,10 @@ extension Notification.Name {
     /// Wird gepostet wenn Geops automatisch einen Offset gemessen hat (GPS-Durchfahrt).
     /// userInfo: ["crossingId": String, "offset": Double, "toMunich": Bool]
     static let trainAutoOffsetMeasured = Notification.Name("trainAutoOffsetMeasured")
+
+    /// Wird gepostet wenn neue relevante Geops-Daten vorliegen (z.B. Nicht-S-Bahn-Zug erkannt).
+    /// Veranlasst das ViewModel die Events sofort neu zu berechnen (kein Warten auf nächsten Reload).
+    static let geopsDataChanged = Notification.Name("geopsDataChanged")
 }
 
 // MARK: - Zugtyp

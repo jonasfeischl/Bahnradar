@@ -21,6 +21,7 @@ struct SidebarContainerView<Content: View>: View {
                 Color.black.opacity(0.35)
                     .ignoresSafeArea()
                     .onTapGesture { withAnimation(.easeOut(duration: 0.25)) { isOpen = false } }
+                    .transition(.opacity)
 
                 SidebarPanel(isOpen: $isOpen, store: store)
                     .frame(width: 300)
@@ -38,45 +39,81 @@ struct SidebarPanel: View {
     @Binding var isOpen: Bool
     var store: CrossingsStore
 
+    /// Übergänge nach Ort gruppiert (z.B. "Oberschleißheim", "Feldmoching") in der
+    /// Reihenfolge ihres ersten Auftretens — macht die Liste bei mehreren Übergängen
+    /// pro Ort übersichtlicher als eine flache Liste.
+    private var groupedCrossings: [(location: String, crossings: [CrossingLocation])] {
+        var order: [String] = []
+        var groups: [String: [CrossingLocation]] = [:]
+        for crossing in store.crossings {
+            if groups[crossing.subtitle] == nil {
+                order.append(crossing.subtitle)
+                groups[crossing.subtitle] = []
+            }
+            groups[crossing.subtitle]?.append(crossing)
+        }
+        return order.map { ($0, groups[$0] ?? []) }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-
-            // Header
-            HStack {
-                Text("Bahnübergänge")
-                    .font(.title2.bold())
-                Spacer()
-                Button {
-                    withAnimation(.easeOut(duration: 0.25)) { isOpen = false }
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                        .font(.title2)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 60)
-            .padding(.bottom, 16)
-
+            header
             Divider()
 
-            // Bahnübergänge Liste
             ScrollView {
-                VStack(spacing: 4) {
-                    ForEach(store.crossings) { crossing in
-                        CrossingRow(crossing: crossing, isSelected: store.selectedId == crossing.id) {
-                            store.select(crossing)
-                            withAnimation(.easeOut(duration: 0.25)) { isOpen = false }
+                VStack(alignment: .leading, spacing: 22) {
+                    ForEach(groupedCrossings, id: \.location) { group in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(group.location.uppercased())
+                                .font(.caption.bold())
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 4)
+
+                            VStack(spacing: 6) {
+                                ForEach(group.crossings) { crossing in
+                                    CrossingRow(crossing: crossing, isSelected: store.selectedId == crossing.id) {
+                                        store.select(crossing)
+                                        withAnimation(.easeOut(duration: 0.25)) { isOpen = false }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 24)
             }
-
         }
         .background(Color(.systemBackground))
         .ignoresSafeArea(edges: .vertical)
+        .shadow(color: .black.opacity(0.15), radius: 16, x: 8, y: 0)
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "tram.fill")
+                .font(.title2)
+                .foregroundStyle(Color.accentColor)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Bahnübergänge")
+                    .font(.title3.bold())
+                Text("Wähle deinen Übergang")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                withAnimation(.easeOut(duration: 0.25)) { isOpen = false }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+                    .font(.title2)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 60)
+        .padding(.bottom, 16)
     }
 }
 
@@ -90,105 +127,32 @@ struct CrossingRow: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
-                // Status-Indikator
-                Circle()
-                    .fill(isSelected ? Color.accentColor : Color(.systemGray4))
-                    .frame(width: 10, height: 10)
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(isSelected ? Color.accentColor : .clear)
+                    .frame(width: 3)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(crossing.name)
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.primary)
-                    Text(crossing.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text(crossing.name)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.primary)
 
                 Spacer()
 
-                // Voice Badge
                 if crossing.voiceEnabled {
                     Image(systemName: "speaker.wave.2.fill")
-                        .font(.caption)
-                        .foregroundStyle(.green)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
 
-                // TODO-Koordinaten Hinweis
-                if false {
-                    Image(systemName: "location.slash")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.accentColor)
+                    .opacity(isSelected ? 1 : 0)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .padding(.vertical, 13)
+            .background(isSelected ? Color.accentColor.opacity(0.08) : Color(.secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Einstellungen für alle Übergänge
-
-struct CrossingsSettingsView: View {
-    @Bindable var store: CrossingsStore
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                ForEach($store.crossings) { $crossing in
-                    Section {
-                        // Voice Toggle
-                        Toggle("Sprachansagen", isOn: $crossing.voiceEnabled)
-                            .onChange(of: crossing.voiceEnabled) { _, _ in
-                                store.update(crossing)
-                            }
-
-                        // Radius
-                        HStack {
-                            Label("Radius", systemImage: "circle.dashed")
-                            Spacer()
-                            Picker("", selection: $crossing.radiusMeters) {
-                                Text("200m").tag(200.0)
-                                Text("500m").tag(500.0)
-                                Text("1 km").tag(1000.0)
-                                Text("2 km").tag(2000.0)
-                            }
-                            .pickerStyle(.menu)
-                            .onChange(of: crossing.radiusMeters) { _, _ in
-                                store.update(crossing)
-                            }
-                        }
-
-                        // GPS-Koordinaten Status
-                        if false {
-                            HStack {
-                                Image(systemName: "location.slash")
-                                    .foregroundStyle(.orange)
-                                Text("Koordinaten noch nicht gemessen")
-                                    .font(.caption)
-                                    .foregroundStyle(.orange)
-                            }
-                        }
-
-                    } header: {
-                        HStack {
-                            Text(crossing.name)
-                            Text("· \(crossing.subtitle)")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Einstellungen")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Fertig") { dismiss() }
-                }
-            }
-        }
     }
 }

@@ -1,12 +1,12 @@
 import SwiftUI
 import Combine
+import CoreLocation
 
 struct ContentView: View {
     var viewModel: CrossingViewModel
     var locationMonitor: LocationMonitor
     var voiceAnnouncer: VoiceAnnouncer
-    @State private var drivingDetector = DrivingDetector()
-    @State private var rotationAngle: Double = 0
+    var drivingDetector: DrivingDetector
     @State private var showFeedbackSheet  = false
     @State private var showFeedbackHistory = false
     @AppStorage("voiceEnabled") private var voiceEnabled: Bool = true
@@ -15,10 +15,31 @@ struct ContentView: View {
     @State private var showSidebar: Bool = false
     @State private var lastHapticStatus: CrossingStatus? = nil
     @State private var isInitialized = false
+    @State private var wasInBackground = false
+    @State private var backgroundGraceTask: Task<Void, Never>?
+    /// Verhindert, dass Ampel/Status-Pille/Hintergrund beim App-Start sichtbar in ihren
+    /// Zustand "einfliegen" — erst nach dem ersten Laden werden echte Statuswechsel animiert.
+    @State private var statusAnimationsEnabled = false
+
+    @AppStorage("hasSeenRadarIntro") private var hasSeenRadarIntro = false
+    @State private var showRadarIntro = false
+    /// Wird von Schrankenradar_OSHApp erst nach der kompletten Onboarding+Berechtigungs-
+    /// Sequenz auf true gesetzt. ContentView wartet darauf, bevor es (a) selbst aktiv GPS für
+    /// die Fahrzeiten-Karte anfordert und (b) den Radar-Intro-Screen zeigt — sonst würde
+    /// ContentView.onAppear (Radar ist Standard-Tab, erscheint quasi sofort beim Kaltstart)
+    /// der bewusst sequenzierten Berechtigungs-Abfrage zuvorkommen (Standort-Popup kam dadurch
+    /// beobachtet vereinzelt statt geordnet nach Bewegung&Fitness) bzw. mit dem Onboarding-
+    /// fullScreenCover kollidieren.
+    @AppStorage("appStartupSequenceComplete") private var appStartupSequenceComplete = false
+    @State private var isTrackingScreenPresence = false
 
     private var voiceActive: Bool {
         voiceEnabled && viewModel.isDriving && viewModel.isNearCrossing
     }
+
+    /// Zuletzt berechnete Auto-Fahrzeit zur Schranke (von TravelTimesCard gemeldet) — steuert
+    /// den Haken/Ausrufezeichen in der Zugliste ("schaffst du's noch vor Schließung").
+    @State private var carETASeconds: TimeInterval?
 
     var body: some View {
         SidebarContainerView(isOpen: $showSidebar, store: viewModel.store) {
@@ -27,13 +48,24 @@ struct ContentView: View {
                 VStack(spacing: 24) {
                     statusHeader
                     safetyWarningBanner
-                    TrafficLightView(status: viewModel.worstStatus(at: now))
-                    statusLabel
-                    openingCountdown
-                    accuracyBadge
-                    voiceBadge
+                    VStack(spacing: 22) {
+                        statusCard
+                        TravelTimesCard(
+                            crossing: viewModel.selectedCrossing,
+                            locationMonitor: locationMonitor,
+                            onCarETAUpdate: { carETASeconds = $0 }
+                        )
+                        badgeRow
+                    }
                     if viewModel.isLoading && viewModel.nextEvents.isEmpty {
-                        ProgressView("Lade Zugdaten...")
+                        VStack(spacing: 6) {
+                            ProgressView("Lade Zugdaten...")
+                            Text("Kann beim ersten Start kurz dauern — bitte warten, bis die ersten Züge angezeigt werden.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 24)
+                        }
                     }
                     if let error = viewModel.errorMessage {
                         errorBanner(error)
@@ -41,9 +73,11 @@ struct ContentView: View {
                     upcomingTrainsList
                     feedbackButtons
                     disclaimer
+                    safetyDisclaimer
                 }
                 .padding()
             }
+            .background(statusBackgroundTint.ignoresSafeArea())
             .navigationTitle(viewModel.selectedCrossing.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -54,15 +88,15 @@ struct ContentView: View {
                         Image(systemName: "line.3.horizontal")
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        withAnimation(.linear(duration: 0.6)) { rotationAngle += 360 }
-                        Task { await viewModel.fetchData() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .rotationEffect(.degrees(rotationAngle))
-                    }
-                    .disabled(viewModel.isLoading)
+            }
+            .fullScreenCover(isPresented: $showRadarIntro) {
+                FeatureIntroScreen(
+                    icon: "antenna.radiowaves.left.and.right",
+                    title: "Radar",
+                    message: "Hier siehst du auf einen Blick, ob die Schranke am gewählten Bahnübergang bald schließt. Ampel, Fahrzeiten und die nächsten Züge zeigen dir alles Wichtige — wechsle den Übergang über das Menü oben links."
+                ) {
+                    hasSeenRadarIntro = true
+                    showRadarIntro = false
                 }
             }
         }
@@ -70,39 +104,117 @@ struct ContentView: View {
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { date in
             now = date
             triggerHapticIfNeeded()
+            drivingDetector.tick()
         }
         .onAppear {
             if !isInitialized {
                 // Einmaliges Setup beim allerersten Start
                 isInitialized = true
-                viewModel.setup(voiceAnnouncer: voiceAnnouncer)
-                viewModel.startAutoRefresh()
-                drivingDetector.start()
+                // viewModel.setup()/startAutoRefresh() werden zentral von der App-Ebene
+                // ausgelöst (siehe Schrankenradar_OSHApp.swift) — genau wie drivingDetector.start(),
+                // aus demselben Grund: der Radar-Tab ist beim allerersten Erscheinen manchmal
+                // noch nicht "richtig" da, wodurch Daten sonst erst nach einem Tab-Wechsel
+                // korrekt angezeigt wurden.
                 locationMonitor.crossings = viewModel.store.crossings
                 locationMonitor.onAutoSwitch = { crossing in
                     guard viewModel.store.selectedId != crossing.id else { return }
                     viewModel.store.select(crossing)
                     Task { await viewModel.fetchData() }
                 }
+                // GPS-Geschwindigkeit an die Fahrt-Erkennung weiterreichen — erkennt
+                // Fahrtbeginn deutlich schneller als Core Motion allein.
+                locationMonitor.onSpeedUpdate = { speed in
+                    drivingDetector.updateSpeed(metersPerSecond: speed)
+                }
+                // Ampel/Status-Pille zeigen den Anfangszustand sofort ohne Überblendung.
+                // Erst danach werden echte, während der Nutzung auftretende Statuswechsel animiert.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                    statusAnimationsEnabled = true
+                }
             } else {
                 // Rückkehr vom Settings-Tab: nur DB-Fetch fortsetzen
                 viewModel.resumeRefresh()
             }
+            applyStartupGatedBehavior()
         }
         .onDisappear {
             // Tab-Wechsel: nur DB-Fetch pausieren, Geops NICHT trennen
             viewModel.pauseRefresh()
+            if isTrackingScreenPresence {
+                isTrackingScreenPresence = false
+                locationMonitor.stopForScreenPresence()
+            }
         }
-        .onChange(of: scenePhase) { oldPhase, phase in
-            if phase == .active && oldPhase == .background {
+        .onChange(of: appStartupSequenceComplete) { _, _ in
+            applyStartupGatedBehavior()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // WICHTIG: iOS durchläuft background → inactive → active. Eine Prüfung auf
+            // oldPhase == .background verfehlt den Reconnect (Vorgänger von .active ist
+            // .inactive). Darum mit wasInBackground-Flag arbeiten.
+            switch phase {
+            case .active:
+                // Ein noch nicht ausgeführter Stopp (siehe .background unten) wird verworfen —
+                // kehrt die App vor Ablauf der Gnadenfrist zurück, ist gar nichts passiert.
+                backgroundGraceTask?.cancel()
+                backgroundGraceTask = nil
+                guard wasInBackground else { return }   // nur echter Hintergrund→Vordergrund
+                wasInBackground = false
                 // App aus Hintergrund: Geops reconnecten + alles neu starten
                 viewModel.startAutoRefresh()
                 drivingDetector.start()
-            } else if phase == .background {
-                // App geht in Hintergrund: alles stoppen
-                viewModel.stopAutoRefresh()
-                drivingDetector.stop()
-                locationMonitor.stop()
+                // LocationMonitor explizit neu starten falls isDriving schon true war —
+                // onChange(isDriving) feuert sonst nicht (Wert unverändert).
+                if viewModel.isDriving { locationMonitor.start() }
+
+            case .background:
+                // Kurze Unterbrechungen (z.B. das System-Dialog für die Standort-Berechtigung)
+                // lassen die App kurz durch .background/.inactive laufen, obwohl der Nutzer sie
+                // gar nicht verlassen hat. Ein sofortiger stopAutoRefresh() trennt dabei die
+                // Geops-WebSocket-Verbindung UND leert den gesamten Live-Zustand (Fahrzeuge,
+                // Stopsequence-Zeiten) — beim sofortigen Reconnect landen die Züge dann in einer
+                // neuen, leicht anderen Zuordnung, was als Sprung in der Schrankenzeit sichtbar
+                // wurde. Darum erst nach einer kurzen Gnadenfrist wirklich stoppen.
+                backgroundGraceTask?.cancel()
+                backgroundGraceTask = Task {
+                    try? await Task.sleep(for: .seconds(3))
+                    guard !Task.isCancelled else { return }
+                    wasInBackground = true
+                    // Werte VOR dem Stoppen der Sensoren lesen
+                    let wasDriving = viewModel.isDriving
+                    let wasNear    = viewModel.isNearCrossing
+
+                    // Live-Datenrefresh (geOps-WebSocket, DB-Polling) pausiert im Hintergrund
+                    // so oder so — dafür gibt's kein eigenes Hintergrund-Netzwerk-Setup. Die
+                    // zuletzt geplanten Ansage-Timer (aus dem letzten Refresh vor dem
+                    // Backgrounding) laufen trotzdem mit den zuletzt bekannten Zeiten weiter.
+                    viewModel.stopAutoRefresh()
+
+                    // Mit "Immer"-Standortberechtigung läuft die Sprachausgabe selbst im
+                    // Hintergrund weiter (siehe LocationMonitor: allowsBackgroundLocationUpdates
+                    // + UIBackgroundModes "location"/"audio") — dafür GPS/Fahrterkennung NICHT
+                    // stoppen, sonst bricht genau das ab, was das erst ermöglicht. Ohne
+                    // "Immer"-Freigabe (nur "Bei Nutzung" erlaubt) pausiert GPS im Hintergrund
+                    // ohnehin durch iOS selbst — dann gibt es bewusst keine Warnung mehr, bis
+                    // die App wieder geöffnet wird (kein Mitteilungs-Rückfall mehr).
+                    if locationMonitor.authorizationStatus == .authorizedAlways {
+                        // Hörbare Bestätigung nur, wenn Hintergrund-Tracking gerade
+                        // tatsächlich etwas bewirkt (Fahrt + in Schranken-Nähe) — sonst
+                        // wäre "jetzt aktiv" beim simplen Wegwischen daheim irreführend.
+                        if voiceEnabled && wasDriving && wasNear {
+                            voiceAnnouncer.announceBackgroundActive()
+                        }
+                    } else {
+                        drivingDetector.stop()
+                        locationMonitor.stop()
+                    }
+                }
+
+            case .inactive:
+                break   // kurze Unterbrechung (Banner etc.) → nichts tun
+
+            @unknown default:
+                break
             }
         }
         .onChange(of: drivingDetector.isDriving) { _, driving in
@@ -113,7 +225,7 @@ struct ContentView: View {
             viewModel.isNearCrossing = near
         }
         .onChange(of: viewModel.store.selectedId) { _, _ in
-            Task { await viewModel.fetchData() }
+            viewModel.selectAndRefresh()
         }
     }
 
@@ -136,12 +248,63 @@ struct ContentView: View {
         let status = viewModel.worstStatus(at: now)
         return HStack(spacing: 8) {
             Image(systemName: status.systemImage)
-                .foregroundStyle(status.color)
             Text(status.label)
-                .font(.title3)
-                .fontWeight(.semibold)
+                .fontWeight(.bold)
         }
-        .animation(.easeInOut, value: status)
+        .font(.title3)
+        .foregroundStyle(.white)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(status.color, in: Capsule())
+        .shadow(color: status.color.opacity(0.4), radius: 8, y: 3)
+        .animation(statusAnimationsEnabled ? .easeInOut : nil, value: status)
+    }
+
+    private var statusCard: some View {
+        VStack(spacing: 14) {
+            TrafficLightView(status: viewModel.worstStatus(at: now), animated: statusAnimationsEnabled)
+            statusLabel
+            openingCountdown
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Dezenter Farbverlauf im Hintergrund passend zum Status — macht den Zustand
+    /// auch beim Reinschauen aus der Ferne sofort erkennbar (z.B. beim Losfahren).
+    private var statusBackgroundTint: some View {
+        let status = viewModel.worstStatus(at: now)
+        return LinearGradient(
+            colors: [status.color.opacity(0.12), Color(.systemGroupedBackground)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .animation(statusAnimationsEnabled ? .easeInOut(duration: 0.6) : nil, value: status)
+    }
+
+    private var badgeRow: some View {
+        FlowLayout(spacing: 8) {
+            accuracyBadge
+            liveDataBadge
+            voiceBadge
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Startup-Gate (GPS für Fahrzeiten-Karte + Radar-Intro)
+
+    /// Startet GPS-Tracking für die Fahrzeiten-Karte und zeigt ggf. den Radar-Intro-Screen —
+    /// aber NUR, wenn die App-Berechtigungs-Sequenz bereits durchgelaufen ist (siehe
+    /// appStartupSequenceComplete-Kommentar oben). Wird sowohl bei jedem Erscheinen des Tabs
+    /// als auch (für den Erststart-Fall) aufgerufen, sobald die Sequenz fertig wird.
+    private func applyStartupGatedBehavior() {
+        guard appStartupSequenceComplete else { return }
+        if !isTrackingScreenPresence {
+            isTrackingScreenPresence = true
+            locationMonitor.startForScreenPresence()
+        }
+        if !hasSeenRadarIntro {
+            showRadarIntro = true
+        }
     }
 
     // MARK: - Haptisches Feedback
@@ -174,10 +337,36 @@ struct ContentView: View {
 
     // MARK: - Sicherheits-Banner
 
-    /// Zeigt ein Banner wenn die DB-Daten > 2 Minuten alt sind.
+    /// Zeigt ein Banner wenn die App offline ist (Cache) oder die Daten > 2 Minuten alt sind.
     @ViewBuilder
     private var safetyWarningBanner: some View {
-        if viewModel.dataIsStale {
+        if viewModel.isShowingCachedData {
+            HStack(spacing: 8) {
+                Image(systemName: "wifi.slash")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Offline – letzte bekannte Daten")
+                        .font(.caption.bold())
+                    if let updated = viewModel.lastUpdated {
+                        Text("Stand \(updated.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption2)
+                    }
+                }
+                Spacer()
+                Button {
+                    Task { await viewModel.fetchData() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption.bold())
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Color.gray)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .animation(.easeInOut, value: viewModel.isShowingCachedData)
+        } else if viewModel.dataIsStale {
             HStack(spacing: 8) {
                 Image(systemName: "clock.badge.exclamationmark")
                 Text("Daten veraltet – Aktualität nicht garantiert")
@@ -236,7 +425,7 @@ struct ContentView: View {
                             Text("Öffnet ~")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            + Text("\(openTime, style: .time)")
+                            Text("\(openTime, style: .time)")
                                 .font(.caption.bold())
                                 .foregroundStyle(.primary)
                             Text("(in \(secsUntil)s)")
@@ -298,8 +487,19 @@ struct ContentView: View {
         let feedback  = viewModel.feedback
         let community = viewModel.communityOffsets[crossing.id]
 
-        let localMunich    = crossing.autoMeasurementsMunich >= 3
-        let localFreising  = crossing.autoMeasurementsFreising >= 3
+        // Über offsetSource() statt direkt autoMeasurements-Felder lesen — sonst würde dieses
+        // Badge für osh_dachauer weiterhin "Präzise/Kalibriert" (aus GPS-Messungen) behaupten,
+        // obwohl bestOffset() diese Messungen seit dem GPS-Offset-Freeze (siehe
+        // CrossingLocation.usesFrozenBase, 2026-07-20) für osh_dachauer gar nicht mehr nutzt —
+        // die Anzeige basiert dort nur noch auf Community-/Standardwert + Hardcode.
+        let localMunich    = crossing.offsetSource(
+            toMunich: true,
+            communityMunich: community?.munich, communityMunichCount: community?.munichCount ?? 0
+        ) == .local
+        let localFreising  = crossing.offsetSource(
+            toMunich: false,
+            communityFreising: community?.freising, communityFreisingCount: community?.freisingCount ?? 0
+        ) == .local
         let commMunich     = community?.munich != nil
         let commFreising   = community?.freising != nil
 
@@ -311,12 +511,56 @@ struct ContentView: View {
         // Lernend: Community-Daten für eine Richtung ODER manuelles Feedback
         if commMunich || commFreising                           { return .learning }
         if feedback.feedbackCount > 0
+            || feedback.communityVoteCount > 0
             || feedback.closingOffsetToMunich != 0
             || feedback.closingOffsetToFreising != 0            { return .learning }
         return .estimate
     }
 
     @State private var showAccuracyDetail = false
+
+    /// Ob die NÄCHSTE relevante Vorhersage ein Zug ohne DB-Fahrplaneintrag ist (Güterzug/RE/RB,
+    /// nur per Geops-Live-GPS erkannt, siehe buildEvents `isLiveData: true` für Nicht-S-Bahn-
+    /// Züge) oder ein regulärer Fahrplan-Zug. nil = kein anstehender Zug → Badge ausblenden.
+    /// Seit der Umstellung auf DB+MVG als alleinige Zeitquelle (2026-07-20 — GPS-Trajektorien
+    /// waren in der Praxis ungenauer als DB/MVG) ist "Fahrplan" der verlässliche Normalfall,
+    /// nicht mehr die unsichere Ausweichlösung.
+    /// WICHTIG: `event.isLiveData` allein reicht hier NICHT — bei einem regulären S-Bahn-Zug
+    /// wird es einfach nur bei frischer GPS-Bestätigung true (buildEvents: `hasFreshVehicle`),
+    /// unabhängig davon, ob überhaupt ein DB-Fahrplaneintrag existiert. Zeigte dadurch fälschlich
+    /// "Live-GPS" für ganz normale, DB/MVG-basierte S-Bahn-Züge (User-Report 2026-07-20:
+    /// "manchmal kommt gps noch immer" — die Zeit selbst kommt weiterhin ausschließlich aus
+    /// DB/MVG, nur das Badge suggerierte fälschlich etwas anderes). Echte GPS-only-Züge ohne
+    /// Fahrplaneintrag bekommen in buildEvents die id `"freight_<tripId>"` — nur DAS ist das
+    /// verlässliche Signal für "kein Fahrplaneintrag, nur Live-GPS".
+    private var nextEventIsLive: Bool? {
+        let upcoming = viewModel.nextEvents
+            .filter { $0.minutesUntil(from: now) > -1 }
+            .sorted { $0.estimatedCrossingTime < $1.estimatedCrossingTime }
+        guard let next = upcoming.first else { return nil }
+        return next.id.hasPrefix("freight_")
+    }
+
+    @ViewBuilder
+    private var liveDataBadge: some View {
+        if let isLive = nextEventIsLive {
+            let color: Color = isLive ? .secondary : .green
+            HStack(spacing: 5) {
+                Image(systemName: isLive ? "dot.radiowaves.left.and.right" : "calendar")
+                    .foregroundStyle(color)
+                Text(isLive ? "Live-GPS" : "Fahrplan")
+                    .font(.caption)
+                    .foregroundStyle(color)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(color.opacity(0.1))
+            .clipShape(Capsule())
+            .accessibilityLabel(isLive
+                ? "Zug ohne Fahrplaneintrag, nur per Live-GPS erkannt"
+                : "Vorhersage beruht auf Fahrplan- und Echtzeitdaten")
+        }
+    }
 
     private var accuracyBadge: some View {
         let level = accuracyLevel
@@ -435,25 +679,38 @@ struct ContentView: View {
         }
     }
 
+    /// nextEvents hält einen gerade durchgefahrenen Zug noch kurz (keepWindow = openingDelay+30s
+    /// in CrossingViewModel.buildEvents) — nötig, damit Ampel/Status nicht direkt nach der
+    /// Durchfahrt zurückspringen. Für DIESE Liste ist das aber verwirrend: so ein Zug hat die
+    /// früheste estimatedCrossingTime von allen und stand dadurch als "erster Zug" ganz oben,
+    /// obwohl er schon durchgefahren ist (Uhrzeit liegt sichtbar in der Vergangenheit). Deshalb
+    /// hier zusätzlich gefiltert — Ampel/Status bleiben unberührt, die lesen weiter nextEvents.
+    private var displayedTrainEvents: [CrossingEvent] {
+        viewModel.nextEvents.filter { $0.minutesUntil(from: now) > -0.5 }
+    }
+
     private var upcomingTrainsList: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Nächste Züge")
                 .font(.headline)
                 .padding(.bottom, 2)
-            if viewModel.nextEvents.isEmpty && !viewModel.isLoading {
+            if displayedTrainEvents.isEmpty && !viewModel.isLoading {
                 Text("Keine Züge in den nächsten 90 Minuten.")
                     .foregroundStyle(.secondary)
                     .font(.subheadline)
             } else {
-                ForEach(viewModel.nextEvents.prefix(8)) { event in
-                    TrainEventRow(event: event, now: now)
+                // 90-Min-Fenster voll anzeigen (vorher prefix(8) ≈ nur ~50 min).
+                // nextEvents ist durch den Fetch bereits zeitlich auf 90 min begrenzt;
+                // das Limit 40 ist nur ein Sicherheitsnetz gegen Ausreißer.
+                ForEach(Array(displayedTrainEvents.prefix(40).enumerated()), id: \.element.id) { index, event in
+                    if index > 0 { Divider() }
+                    TrainEventRow(event: event, now: now, carETASeconds: carETASeconds)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .cardStyle()
     }
 
     private var feedbackButtons: some View {
@@ -520,8 +777,7 @@ struct ContentView: View {
             }
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .cardStyle()
     }
 
     private var disclaimer: some View {
@@ -536,12 +792,35 @@ struct ContentView: View {
             HStack(spacing: 16) {
                 apiDot(color: viewModel.dbConnected ? .green : .red,
                        label: "DB Fahrplan")
-                apiDot(color: GeopsRealtimeService.shared.connectionState.color,
+                apiDot(color: GeopsRealtimeService.shared.connectionDisplayColor,
                        label: "Geops Live")
+                apiDot(color: MVGService.shared.connectionDisplayColor,
+                       label: "MVV")
                 apiDot(color: viewModel.feedback.isCloudConnected ? .green : .red,
                        label: "Cloud")
             }
         }
+    }
+
+    private var safetyDisclaimer: some View {
+        VStack(spacing: 6) {
+            Label("Keine sicherheitsrelevante Anwendung", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption.bold())
+                .foregroundStyle(.orange)
+            Text("Diese App liefert unverbindliche Schätzungen auf Basis von Fahrplan- und GPS-Daten. Sie ersetzt nicht die eigene Aufmerksamkeit und Vorsicht am Bahnübergang. Verlasse dich beim Überqueren ausschließlich auf die Schranken- und Signalanlage vor Ort, nicht auf diese App.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.orange.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.orange.opacity(0.25), lineWidth: 1)
+        )
+        .padding(.horizontal)
     }
 
     private func apiDot(color: Color, label: String) -> some View {
@@ -569,25 +848,54 @@ struct ContentView: View {
 
 }
 
-
 // MARK: - Train Event Row
 
 struct TrainEventRow: View {
     let event: CrossingEvent
     let now: Date
+    /// Aktuelle Auto-Fahrzeit zur Schranke (von TravelTimesCard), für den Haken/Ausrufezeichen
+    /// unten. nil solange noch keine GPS-Position/Fahrzeit vorliegt — dann kein Icon.
+    var carETASeconds: TimeInterval? = nil
+
+    /// true = du schaffst es noch vor Schließung, false = knapp/zu spät, nil = keine Aussage
+    /// möglich (keine Fahrzeit bekannt) oder Zug schon durchgefahren.
+    private var makesItInTime: Bool? {
+        guard let carETASeconds, event.minutesUntil(from: now) > 0 else { return nil }
+        // Schranke beginnt laut CrossingEvent.status(at:) ab 1.5 Minuten vor Durchfahrt zu
+        // schließen (Status .warning/.closed) — "rechtzeitig" heißt also: Ankunft VOR diesem
+        // Zeitpunkt, nicht erst vor der eigentlichen Zugdurchfahrt.
+        let secondsUntilClosing = event.minutesUntil(from: now) * 60 - 90
+        return carETASeconds < secondsUntilClosing
+    }
+
+    @ViewBuilder
+    private var makeItIcon: some View {
+        if let makesItInTime {
+            Image(systemName: makesItInTime ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.system(size: 13))
+                .foregroundStyle(makesItInTime ? .green : .orange)
+                .accessibilityLabel(makesItInTime
+                    ? "Mit dem Auto schaffst du es rechtzeitig"
+                    : "Mit dem Auto schaffst du es knapp nicht mehr rechtzeitig")
+        }
+    }
 
     var body: some View {
         HStack {
             Circle()
                 .fill(event.status(at: now).color)
-                .frame(width: 12, height: 12)
+                .frame(width: 10, height: 10)
+            makeItIcon
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(event.train.lineName)
-                        .font(.subheadline)
-                        .fontWeight(.bold)
-                    Text(event.train.resolvedDirection.label)
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6))
+                    Text("→ \(event.train.direction)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -625,7 +933,10 @@ struct TrainEventRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             )
-        } else if minutes < 1 {
+        } else if minutes < 2 {
+            // Sekundengenau statt in ganzen Minuten anzeigen — vorher blieb "in 2 min" bis zu
+            // 60s lang unverändert stehen und sprang dann abrupt auf "in 1 min", statt flüssig
+            // runterzuzählen. Gerade kurz vor Schrankenschließung soll das smooth ticken.
             return AnyView(
                 Text("\(max(0, seconds))s")
                     .font(.caption)
@@ -868,10 +1179,13 @@ struct FlowLayout: Layout {
         let rows = computeRows(proposal: proposal, subviews: subviews)
         var y = bounds.minY
         for row in rows {
-            var x = bounds.minX
-            let rowHeight = row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
-            for subview in row {
-                let size = subview.sizeThatFits(.unspecified)
+            let sizes    = row.map { $0.sizeThatFits(.unspecified) }
+            let rowWidth = sizes.reduce(0) { $0 + $1.width } + spacing * CGFloat(max(0, row.count - 1))
+            // Jede Zeile horizontal zentrieren statt links auszurichten — wirkt bei
+            // wenigen kurzen Badges deutlich aufgeräumter als ein Linksblock.
+            var x = bounds.minX + max(0, (bounds.width - rowWidth) / 2)
+            let rowHeight = sizes.map(\.height).max() ?? 0
+            for (subview, size) in zip(row, sizes) {
                 subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
                 x += size.width + spacing
             }

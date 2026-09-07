@@ -36,7 +36,7 @@ struct DrivingView: View {
             HStack(spacing: 12) {
                 Text(event.train.lineName)
                     .font(.title2).bold()
-                Text(event.train.resolvedDirection.label)
+                Text("→ \(event.train.direction)")
                     .font(.title3)
                     .foregroundStyle(.secondary)
                 Spacer()

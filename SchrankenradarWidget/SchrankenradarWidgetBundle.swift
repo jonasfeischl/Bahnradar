@@ -12,6 +12,5 @@ import SwiftUI
 struct SchrankenradarWidgetBundle: WidgetBundle {
     var body: some Widget {
         SchrankenradarWidget()
-        CrossingLiveActivity()
     }
 }

@@ -19,7 +19,7 @@ var anonymousUserId: String {
 //     "user_abc12345": { "c": [15, 15], "o": [10] },
 //     "user_xyz67890": { "c": [200],    "o": [10] }
 //   },
-//   "feldmoching_lechenauer1": { ... }
+//   "feldmoching_lerchenauer1": { ... }
 // }
 //
 // Aggregation: pro User Median berechnen → dann Median aller User-Mediane
@@ -43,15 +43,15 @@ struct JSONBinService {
 
     // MARK: Lesen + Aggregieren (Feedback-Votes)
 
-    func loadAggregated(crossingId: String) async -> (closing: Double, opening: Double, munich: Double, freising: Double) {
-        guard let url = URL(string: "\(baseURL)/\(binID)/latest") else { return (0, 0, 0, 0) }
+    func loadAggregated(crossingId: String) async -> (closing: Double, opening: Double, munich: Double, freising: Double, voteCount: Int) {
+        guard let url = URL(string: "\(baseURL)/\(binID)/latest") else { return (0, 0, 0, 0, 0) }
         var request = URLRequest(url: url)
         request.setValue(masterKey, forHTTPHeaderField: "X-Master-Key")
 
         guard let (data, _) = try? await URLSession.shared.data(for: request),
               let json    = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let record  = json["record"] as? [String: Any],
-              let crossing = record[crossingId] as? [String: Any] else { return (0, 0, 0, 0) }
+              let crossing = record[crossingId] as? [String: Any] else { return (0, 0, 0, 0, 0) }
 
         // Pro User Median berechnen → dann Median aller User-Mediane (Ausreißerschutz)
         var userClosingMedians:  [Double] = []
@@ -59,12 +59,14 @@ struct JSONBinService {
         var userMunichMedians:   [Double] = []
         var userFreisingMedians: [Double] = []
 
+        var totalVotes = 0
         for (_, value) in crossing {
             guard let userEntry = value as? [String: Any] else { continue }
             let c  = userEntry["c"]  as? [Double] ?? []
             let o  = userEntry["o"]  as? [Double] ?? []
             let cm = userEntry["cm"] as? [Double] ?? []
             let cf = userEntry["cf"] as? [Double] ?? []
+            totalVotes += c.count + o.count + cm.count + cf.count
             if !c.isEmpty  { userClosingMedians.append(median(of: c)) }
             if !o.isEmpty  { userOpeningMedians.append(median(of: o)) }
             if !cm.isEmpty { userMunichMedians.append(median(of: cm)) }
@@ -75,7 +77,8 @@ struct JSONBinService {
             median(of: userClosingMedians),
             median(of: userOpeningMedians),
             median(of: userMunichMedians),
-            median(of: userFreisingMedians)
+            median(of: userFreisingMedians),
+            totalVotes
         )
     }
 
@@ -121,10 +124,28 @@ struct JSONBinService {
         var request = URLRequest(url: url)
         request.setValue(masterKey, forHTTPHeaderField: "X-Master-Key")
 
-        guard let (data, _) = try? await URLSession.shared.data(for: request),
-              let json   = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+#if DEBUG
+            print("[JSONBin] GET EXCEPTION: \(error.localizedDescription)")
+#endif
+            return [:]
+        }
+#if DEBUG
+        let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+        print("[JSONBin] GET → HTTP \(code), \(data.count) Bytes")
+#endif
+        guard let json   = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let record = json["record"] as? [String: Any]
-        else { return [:] }
+        else {
+#if DEBUG
+            print("[JSONBin] GET: record nicht lesbar")
+#endif
+            return [:]
+        }
 
         var result: [String: CommunityGPSOffsets] = [:]
 
@@ -149,6 +170,10 @@ struct JSONBinService {
                 munichCount:   fM.count,
                 freisingCount: fF.count
             )
+#if DEBUG
+            let users = crossing.keys.count
+            print("[JSONBin] \(crossingId): \(users) User, München=\(fM.count) Freising=\(fF.count) Werte")
+#endif
         }
         return result
     }
@@ -183,6 +208,11 @@ struct JSONBinService {
         crossingData[anonymousUserId] = userEntry
         record[crossingId] = crossingData
 
+#if DEBUG
+        print("[JSONBin] submitGPSOffset \(crossingId) user=\(anonymousUserId) " +
+              "München=\(munichOffset.map { "\(Int($0))s" } ?? "—") " +
+              "Freising=\(freisingOffset.map { "\(Int($0))s" } ?? "—")")
+#endif
         try? await putRecord(record)
     }
 
@@ -220,6 +250,39 @@ struct JSONBinService {
         try? await putRecord(record)
     }
 
+    /// Entfernt EINEN eigenen Vote (für Undo) — den letzten passenden Wert aus dem
+    /// eigenen Array. Früher fügte Undo einen Gegen-Vote hinzu → polluierte die Cloud
+    /// mit Phantom-Votes (z.B. -15 + Undo wurde zu [-15, +15] statt []).
+    func removeLastVote(crossingId: String, closingDelta: Double?, openingDelta: Double?) async {
+        guard closingDelta != nil || openingDelta != nil else { return }
+        guard let url = URL(string: "\(baseURL)/\(binID)/latest") else { return }
+        var getReq = URLRequest(url: url)
+        getReq.setValue(masterKey, forHTTPHeaderField: "X-Master-Key")
+
+        guard let (data, _) = try? await URLSession.shared.data(for: getReq),
+              var record = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["record"] as? [String: Any],
+              var crossingData = record[crossingId] as? [String: Any],
+              var userEntry = crossingData[anonymousUserId] as? [String: Any]
+        else { return }
+
+        func removeLast(_ value: Double, key: String) {
+            guard var values = userEntry[key] as? [Double] else { return }
+            if let idx = values.lastIndex(where: { abs($0 - value) < 0.001 }) {
+                values.remove(at: idx)
+            }
+            userEntry[key] = values
+        }
+        if let c = closingDelta { removeLast(c, key: "c") }
+        if let o = openingDelta { removeLast(o, key: "o") }
+
+        crossingData[anonymousUserId] = userEntry
+        record[crossingId] = crossingData
+#if DEBUG
+        print("[JSONBin] removeLastVote \(crossingId) closing=\(closingDelta.map { "\(Int($0))" } ?? "—") opening=\(openingDelta.map { "\(Int($0))" } ?? "—")")
+#endif
+        try? await putRecord(record)
+    }
+
     /// Löscht alle eigenen Votes für alle Übergänge aus JSONBin
     func resetUserVotes() async {
         guard let url = URL(string: "\(baseURL)/\(binID)/latest") else { return }
@@ -247,8 +310,23 @@ struct JSONBinService {
         putReq.httpMethod = "PUT"
         putReq.setValue(masterKey, forHTTPHeaderField: "X-Master-Key")
         putReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        putReq.httpBody = try? JSONSerialization.data(withJSONObject: record)
-        _ = try? await URLSession.shared.data(for: putReq)
+        let body = try? JSONSerialization.data(withJSONObject: record)
+        putReq.httpBody = body
+        do {
+            let (data, response) = try await URLSession.shared.data(for: putReq)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+#if DEBUG
+            let bodyKB = Double(body?.count ?? 0) / 1024.0
+            print("[JSONBin] PUT → HTTP \(code), \(String(format: "%.1f", bodyKB)) KB hochgeladen")
+            if code != 200 {
+                print("[JSONBin] PUT FEHLER: \(String(data: data, encoding: .utf8)?.prefix(200) ?? "")")
+            }
+#endif
+        } catch {
+#if DEBUG
+            print("[JSONBin] PUT EXCEPTION: \(error.localizedDescription)")
+#endif
+        }
     }
 
     // MARK: - Median

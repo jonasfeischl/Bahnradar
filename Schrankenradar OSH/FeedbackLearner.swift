@@ -104,6 +104,10 @@ final class FeedbackLearner {
 
     var lastFeedbackMessage: String? = nil
     private(set) var isCloudConnected: Bool = false
+    /// Anzahl Community-Votes (geräteübergreifend) für diesen Übergang — auch wenn sie
+    /// sich netto aufheben. Nötig damit das Genauigkeits-Badge auf einem ZWEITEN Gerät
+    /// „Gelernt“ zeigt (lokales feedbackCount kennt fremde Geräte nicht).
+    private(set) var communityVoteCount: Int = 0
     private let jsonBin = JSONBinService()
     private(set) var history: [FeedbackEntry] = []
 
@@ -144,7 +148,9 @@ final class FeedbackLearner {
     }
 
     var totalOpeningDelay: Double {
-        10 + openingDelayAdjustment   // Basis: 10 Sekunden Nachhaltzeit
+        // Basis 20s: S-Bahn-Schranken bleiben ~20-30s nach Zugdurchfahrt geschlossen
+        // bevor sie zu öffnen beginnen. War vorher 10s, was zu frühem Grün führte.
+        20 + openingDelayAdjustment
     }
 
     // MARK: Feedback
@@ -276,6 +282,19 @@ final class FeedbackLearner {
         return correction
     }
 
+    /// Setzt NUR die richtungs-spezifische Auto-Korrektur (aus Schranken-Modus) einer
+    /// Richtung zurück — lässt die andere Richtung UND den direktions-unabhängigen manuellen
+    /// Feedback-Anteil (closingOffsetAdjustment) unangetastet. Nötig für den Fall, dass eine
+    /// Richtung bereits korrekt gelernt ist und nur die andere zurückgesetzt werden soll.
+    func resetDirectionalLearning(toMunich: Bool) {
+        if toMunich {
+            closingOffsetToMunich = 0
+        } else {
+            closingOffsetToFreising = 0
+        }
+        persistLocal()
+    }
+
     /// Richtungs-spezifische Auto-Korrektur rückgängig machen (beim Löschen eines Records)
     func revertAutoClosingCorrection(_ vote: Double, toMunich: Bool) {
         if toMunich {
@@ -341,12 +360,13 @@ final class FeedbackLearner {
     }
 
     func removeVoteFromFirebasePublic(closing: Double?, opening: Double?) {
-        // Bei Undo: negativen Wert senden um den Effekt umzukehren
+        // Bei Undo: den ursprünglichen Vote WIRKLICH aus der Cloud entfernen
+        // (nicht mehr einen Gegen-Vote anhängen — das polluierte die Daten).
         Task {
-            await jsonBin.submitVote(
+            await jsonBin.removeLastVote(
                 crossingId: crossingId,
-                closingDelta: closing.map { -$0 },
-                openingDelta: opening.map { -$0 }
+                closingDelta: closing,
+                openingDelta: opening
             )
         }
     }
@@ -355,6 +375,7 @@ final class FeedbackLearner {
         let result = await jsonBin.loadAggregated(crossingId: crossingId)
         await MainActor.run {
             self.isCloudConnected = true
+            self.communityVoteCount = result.voteCount
             if result.closing  != 0 { self.closingOffsetAdjustment = result.closing.clamped(to: minClosing...maxClosing) }
             if result.opening  != 0 { self.openingDelayAdjustment  = result.opening.clamped(to: minOpening...maxOpening) }
             if result.munich   != 0 { self.closingOffsetToMunich   = result.munich.clamped(to: minClosing...maxClosing) }

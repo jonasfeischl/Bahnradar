@@ -10,6 +10,7 @@
 		5DC402172FCB104F00425ED8 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DC402162FCB104F00425ED8 /* WidgetKit.framework */; };
 		5DC402192FCB105000425ED8 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DC402182FCB105000425ED8 /* SwiftUI.framework */; };
 		5DC402282FCB105200425ED8 /* SchrankenradarWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5DC402142FCB104F00425ED8 /* SchrankenradarWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F7546814F61F4F59976664F6 /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = 5912EA32045E463DB55E4AD4 /* onnxruntime */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -85,6 +86,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F7546814F61F4F59976664F6 /* onnxruntime in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -151,6 +153,7 @@
 			);
 			name = "Schrankenradar OSH";
 			packageProductDependencies = (
+				5912EA32045E463DB55E4AD4 /* onnxruntime */,
 			);
 			productName = "Schrankenradar OSH";
 			productReference = 5DC401C82FCAFD0000425ED8 /* Schrankenradar OSH.app */;
@@ -186,7 +189,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2650;
-				LastUpgradeCheck = 2650;
+				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					5DC401C72FCAFD0000425ED8 = {
 						CreatedOnToolsVersion = 26.5;
@@ -206,6 +209,7 @@
 			mainGroup = 5DC401BF2FCAFD0000425ED8;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				B65DD927FB224B44ADE03AAF /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5DC401C92FCAFD0000425ED8 /* Products */;
@@ -320,6 +324,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -377,6 +382,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -395,6 +401,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Schrankenradar-OSH-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Bahnradar;
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Der Standort wird während der Fahrt geprüft, auch bei gesperrtem Bildschirm, damit Sprachwarnungen vor der Bahnschranke zuverlässig ertönen.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Der Standort wird nur während der Fahrt geprüft um festzustellen ob du in der Nähe des Bahnübergangs bist.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Die App erkennt automatisch ob du fährst und aktiviert dann Sprachansagen.";
 				INFOPLIST_KEY_NSSiriUsageDescription = "Schrankenradar nutzt Siri um den Bahnübergang-Status anzusagen.";
@@ -402,7 +409,6 @@
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -435,6 +441,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Schrankenradar-OSH-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Bahnradar;
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Der Standort wird während der Fahrt geprüft, auch bei gesperrtem Bildschirm, damit Sprachwarnungen vor der Bahnschranke zuverlässig ertönen.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Der Standort wird nur während der Fahrt geprüft um festzustellen ob du in der Nähe des Bahnübergangs bist.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Die App erkennt automatisch ob du fährst und aktiviert dann Sprachansagen.";
 				INFOPLIST_KEY_NSSiriUsageDescription = "Schrankenradar nutzt Siri um den Bahnübergang-Status anzusagen.";
@@ -442,7 +449,6 @@
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -555,6 +561,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B65DD927FB224B44ADE03AAF /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/microsoft/onnxruntime-swift-package-manager";
+			requirement = {
+				kind = exactVersion;
+				version = 1.19.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		5912EA32045E463DB55E4AD4 /* onnxruntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B65DD927FB224B44ADE03AAF /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
+			productName = onnxruntime;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 5DC401C02FCAFD0000425ED8 /* Project object */;
 }
