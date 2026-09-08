@@ -35,6 +35,13 @@ actor NeuralVoiceEngine {
 
     nonisolated let isAvailable: Bool
 
+    /// Cache der rohen Inferenz-Samples pro Textteil (vor Fade-in/Betonung/Pause, die
+    /// pro Aufruf variieren können). Sicher, weil die Synthese deterministisch ist
+    /// (noise_scale=0, siehe runInference) — derselbe Text liefert immer exakt dieselben
+    /// Samples. Der feste, kleine Wortschatz (Status-Sätze, Zeitangaben) wiederholt sich
+    /// ständig, dadurch entfällt für wiederkehrende Ansagen die Inferenz komplett.
+    private var inferenceCache: [String: [Float]] = [:]
+
     init() {
         guard
             let modelURL = Bundle.main.url(forResource: "thorsten_vits", withExtension: "onnx"),
@@ -82,23 +89,44 @@ actor NeuralVoiceEngine {
             idsPerPart.append(ids)
         }
 
-        // Alle Teile parallel statt nacheinander berechnen — bei zweiteiligen Ansagen
-        // (Status + Zeitangabe) halbiert das etwa die Wartezeit, da jeder Teil einen
+        // Erst den Cache prüfen — nur für tatsächlich neue Teile überhaupt Inferenz
+        // anstoßen. Bei wiederkehrenden Ansagen (Status wiederholt sich oft) bleibt
+        // dadurch oft gar keine Inferenz mehr übrig.
+        var results: [Int: [Float]] = [:]
+        var uncachedIndices: [Int] = []
+        for (index, part) in parts.enumerated() {
+            if let cached = inferenceCache[part] {
+                results[index] = cached
+            } else {
+                uncachedIndices.append(index)
+            }
+        }
+
+        // Verbleibende (nicht gecachte) Teile parallel statt nacheinander berechnen —
+        // bei zweiteiligen Ansagen halbiert das die Wartezeit, da jeder Teil einen
         // eigenen, unabhängigen Inferenz-Durchlauf braucht (ORT-Sessions erlauben
         // parallele run()-Aufrufe von mehreren Threads).
-        let lengthScale = self.lengthScale
-        let indexedResults = await withTaskGroup(of: (Int, [Float]?).self) { group in
-            for (index, ids) in idsPerPart.enumerated() {
-                group.addTask { (index, Self.runInference(session: session, ids: ids, lengthScale: lengthScale)) }
+        if !uncachedIndices.isEmpty {
+            let lengthScale = self.lengthScale
+            let freshResults = await withTaskGroup(of: (Int, [Float]?).self) { group in
+                for index in uncachedIndices {
+                    let ids = idsPerPart[index]
+                    group.addTask { (index, Self.runInference(session: session, ids: ids, lengthScale: lengthScale)) }
+                }
+                var collected: [Int: [Float]?] = [:]
+                for await (index, samples) in group { collected[index] = samples }
+                return collected
             }
-            var collected: [Int: [Float]?] = [:]
-            for await (index, samples) in group { collected[index] = samples }
-            return collected
+            for index in uncachedIndices {
+                guard let samples = freshResults[index] ?? nil else { return nil }
+                results[index] = samples
+                inferenceCache[parts[index]] = samples
+            }
         }
 
         var allSamples: [Float] = []
         for index in idsPerPart.indices {
-            guard var samples = indexedResults[index] ?? nil else { return nil }
+            guard var samples = results[index] else { return nil }
             samples = Self.fadeIn(samples, sampleRate: sampleRate)
             if emphasizeIndices.contains(index) {
                 samples = Self.boostVolume(samples, factor: 1.6)

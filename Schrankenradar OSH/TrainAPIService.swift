@@ -110,6 +110,48 @@ struct TrainAPIService {
         return dbEntries
     }
 
+    /// Nur für den Admin-Vergleichs-Tab (API-Vergleich): identischer DB-Fetch/Parse wie
+    /// `fetchDBEntries` oben, aber bewusst OHNE die MVG-Überlagerung — sonst wäre "DB" im
+    /// Vergleich nicht mehr DBs eigene Meinung, sondern hätte MVGs Verspätung schon eingemischt,
+    /// was den Vergleich sinnlos machen würde. Eigenständige Funktion statt Umbau von
+    /// `fetchDBEntries`, damit die dort produktiv genutzte, fein abgestimmte Funktion und ihre
+    /// Nebenläufigkeit (MVG parallel zu den DB-Batches) unangetastet bleiben.
+    func fetchDBEntriesRaw(crossing: CrossingLocation) async throws -> [TrainEntry] {
+        let now   = Date()
+        let plus1 = now.addingTimeInterval(3600)
+        let plus2 = now.addingTimeInterval(5400)  // +90 Min
+
+        async let batch1  = fetchPlan(for: now,   eva: crossing.stationEVA)
+        async let batch2  = fetchPlan(for: plus1, eva: crossing.stationEVA)
+        async let batch3  = fetchPlan(for: plus2, eva: crossing.stationEVA)
+        async let changes = fetchChanges(eva: crossing.stationEVA)
+
+        let (stops1, stops2, stops3, changeMap) = try await (batch1, batch2, batch3, changes)
+
+        var seenDB = Set<String>()
+        let allStops = (stops1 + stops2 + stops3).filter { seenDB.insert($0.id).inserted }
+
+        var dbEntries: [TrainEntry] = allStops.compactMap { stop -> TrainEntry? in
+            var enriched = stop
+            if let change = changeMap[stop.id] { enriched.applyChange(change) }
+            return TrainEntry(from: enriched, onlyS1: crossing.onlyS1, confirmedLines: crossing.confirmedLines)
+        }
+        dbEntries = dbEntries.filter { $0.actualTime <= now.addingTimeInterval(5400) }
+
+        DebugLog.shared.add("[DB-Vergleich] \(crossing.name): \(dbEntries.count) Rohe DB-Einträge (ohne MVG)")
+        return dbEntries
+    }
+
+    /// Nur für den Admin-Vergleichs-Tab: lädt MVG-Abfahrten direkt, ohne DB-Zuordnung/Overlay.
+    /// Ruft dieselbe private `fetchMVGDepartures(globalId:includeRegionalTrains:)` wie die
+    /// MVG-Überlagerung oben auf — übernimmt dadurch automatisch dieselbe SBAHN/BAHN-Aufteilung
+    /// + das `mvgSupportsRegionalTrains`-Gating. WICHTIG das so zu belassen: ohne dieses Gating
+    /// drohte am 2026-07-22 bereits einmal ein MVG-Rate-Limit (HTTP 509), siehe Kommentar bei
+    /// `fetchMVGDepartures` unten.
+    func fetchMVGEntriesRaw(crossing: CrossingLocation) async -> [MVGService.Departure] {
+        await fetchMVGDepartures(globalId: crossing.mvgGlobalId, includeRegionalTrains: crossing.mvgSupportsRegionalTrains)
+    }
+
     /// Gecachte DB-Entries mit dem AKTUELLEN Geops-Stand mergen (KEIN Netz-Call).
     /// Dadurch erscheinen neue Geops-Züge sofort, ohne erneuten DB-Fetch.
     @MainActor

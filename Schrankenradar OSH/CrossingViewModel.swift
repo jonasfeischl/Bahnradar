@@ -96,6 +96,10 @@ final class CrossingViewModel {
     // niedrigerer Wert). Erst wenn derselbe niedrigere Wert beim nächsten Poll erneut kommt,
     // wird er akzeptiert.
     private var pendingDelayReduction: [String: (value: Int, count: Int)] = [:]
+    // Analog für eine Verspätungs-ERHÖHUNG, aber nur relevant in der kritischen Schlussphase
+    // (siehe requiredConsistentPollsForCriticalIncrease unten) — außerhalb davon werden
+    // Erhöhungen weiterhin sofort übernommen.
+    private var pendingDelayIncrease: [String: (value: Int, count: Int)] = [:]
 
     /// Ab wie vielen aufeinanderfolgenden Polls mit demselben niedrigeren Wert eine Verspätungs-
     /// Rücknahme übernommen wird. Live-Test 2026-07-19: ein Zug zeigte +19min Verspätung über
@@ -113,6 +117,13 @@ final class CrossingViewModel {
     /// weniger Schutz vor kurzen DB-Ausreißern als bei 7, aber spürbar schnelleres Nachziehen.
     private let requiredConsistentPollsForReduction = 5
 
+    /// Nur für Verspätungs-ERHÖHUNGEN in der kritischen Schlussphase (<3 Min, siehe unten) —
+    /// deutlich kürzer als requiredConsistentPollsForReduction, weil eine echte Erhöhung sich
+    /// beim nächsten Poll (~5-20s) sofort wiederholt bestätigt, ein einzelner DB-Ausreißer
+    /// dagegen nicht. Soll nur den einzelnen Fehl-Poll abfangen, keine echte spürbare
+    /// Verzögerung einführen.
+    private let requiredConsistentPollsForCriticalIncrease = 2
+
     /// DB's eigene Realtime-Changes-API hat sich als genauso unzuverlässig erwiesen wie zuvor
     /// geOps: Für denselben Zug wurde beobachtet, dass die Verspätung innerhalb weniger Minuten
     /// zwischen einem korrekten Wert (z.B. +3min, mit MVV übereinstimmend) und 0 hin- und
@@ -128,12 +139,56 @@ final class CrossingViewModel {
             let key = train.id
             let previous = acceptedDelayMinutes[key]
 
-            guard let previous, train.delayMinutes < previous else {
-                // Gleich, höher, oder erste Sichtung dieses Zuges: sofort akzeptieren.
+            guard let previous, train.delayMinutes != previous else {
+                // Gleich oder erste Sichtung dieses Zuges: sofort akzeptieren.
                 acceptedDelayMinutes[key] = train.delayMinutes
                 pendingDelayReduction[key] = nil
+                pendingDelayIncrease[key] = nil
                 return train
             }
+
+            // Für beide Zweige unten: wo lag die zuletzt akzeptierte (aktuell angezeigte)
+            // Durchfahrtszeit relativ zu jetzt? Bezieht sich auf die Abfahrt, nicht die
+            // Durchfahrtszeit an der Schranke (kennt hier den Crossing-Offset noch nicht) —
+            // dieselbe bewusste Näherung wie schon vorher für die Rücknahme-Sonderregel.
+            let currentlyShownTime = train.scheduledTime.addingTimeInterval(Double(previous) * 60)
+            let isCriticalPhase = currentlyShownTime.timeIntervalSinceNow < 180
+
+            if train.delayMinutes > previous {
+                // Erhöhung: normalerweise sofort übernehmen (Sicherheit geht vor — eine zu
+                // spät erkannte Verspätung wäre schlimmer als eine zu früh erkannte). AUSNAHME:
+                // in der kritischen Schlussphase (<3 Min) schiebt eine Erhöhung die
+                // Durchfahrtszeit nach HINTEN und lässt die Ampel dadurch von
+                // geschlossen/warnend auf offen zurückspringen — das Gegenteil von "Sicherheit
+                // geht vor". Beobachtet (User-Report): Countdown zeigte 80s, dann 70s
+                // (korrekt), dann sprang die Ampel ohne Übergang auf grün — Ursache war ein
+                // einzelner, sofort übernommener DB-Verspätungssprung so kurz vor der
+                // Durchfahrt (DBs Realtime-Changes-API hat sich schon mehrfach als
+                // unzuverlässig erwiesen, siehe requiredConsistentPollsForReduction oben).
+                // Deshalb hier — nur in diesem eng begrenzten Fall — dieselbe
+                // Mehrfach-Poll-Bestätigung wie bei Rücknahmen, aber kürzer.
+                guard isCriticalPhase else {
+                    acceptedDelayMinutes[key] = train.delayMinutes
+                    pendingDelayIncrease[key] = nil
+                    return train
+                }
+                if pendingDelayIncrease[key]?.value == train.delayMinutes {
+                    let count = pendingDelayIncrease[key]!.count + 1
+                    if count >= requiredConsistentPollsForCriticalIncrease {
+                        acceptedDelayMinutes[key] = train.delayMinutes
+                        pendingDelayIncrease[key] = nil
+                        return train
+                    }
+                    pendingDelayIncrease[key] = (train.delayMinutes, count)
+                } else {
+                    pendingDelayIncrease[key] = (train.delayMinutes, 1)
+                }
+                let stableActualTime = train.scheduledTime.addingTimeInterval(Double(previous) * 60)
+                return train.with(actualTime: stableActualTime)
+            }
+
+            // Rücknahme (train.delayMinutes < previous).
+            pendingDelayIncrease[key] = nil
 
             // In der kritischen Schlussphase (<3 Min bis zur AKTUELL angezeigten Durchfahrt)
             // wird eine Rücknahme SOFORT übernommen statt über mehrere Polls gebremst — die
@@ -144,8 +199,7 @@ final class CrossingViewModel {
             // eingefrorener Countdown ist hier am schädlichsten. Außerhalb dieses Fensters
             // bleibt die Bremse unverändert (schützt weiterhin vor dem ursprünglichen
             // +19min→0min-Ausreißer, der deutlich früher als 3 Min vor Abfahrt auftrat).
-            let currentlyShownTime = train.scheduledTime.addingTimeInterval(Double(previous) * 60)
-            if currentlyShownTime.timeIntervalSinceNow < 180 {
+            if isCriticalPhase {
                 acceptedDelayMinutes[key] = train.delayMinutes
                 pendingDelayReduction[key] = nil
                 return train
@@ -243,9 +297,10 @@ final class CrossingViewModel {
         return "\(e.train.lineName)|\(e.train.resolvedDirection == .toMunich)|\(depMinute)"
     }
 
-    /// Glättet kurzes Flackern: Ein Zug der gerade noch da war (< 40s) aber jetzt aus den
-    /// Echtzeitdaten fällt, wird noch gehalten — solange er noch in der Zukunft liegt.
-    /// Ein wirklich abgesagter Zug (> 40s nicht mehr bestätigt) verschwindet trotzdem.
+    /// Glättet kurzes Flackern: Ein Zug der gerade noch da war (< 40s, in der kritischen Phase
+    /// < 90s) aber jetzt aus den Echtzeitdaten fällt, wird noch gehalten — solange er noch in
+    /// der Zukunft liegt. Ein wirklich abgesagter Zug (Gnadenfrist abgelaufen) verschwindet
+    /// trotzdem.
     private func stabilize(_ fresh: [CrossingEvent]) -> [CrossingEvent] {
         let now = Date()
         for e in fresh { eventLastConfirmed[eventSignature(e)] = now }
@@ -275,7 +330,17 @@ final class CrossingViewModel {
             // erscheint derselbe Zug (gleiche id) zweimal, nur mit unterschiedlicher
             // estimatedCrossingTime (z.B. wenn ein GPS-Update die Zeit um >90s verschiebt).
             guard !fresh.contains(where: { $0.id == prev.id }) else { continue }
-            if let confirmed = eventLastConfirmed[sig], now.timeIntervalSince(confirmed) < 40 {
+            // Gnadenfrist: in der kritischen Phase (<3 Min bis zur Durchfahrt) großzügiger
+            // (90s statt 40s) — hier kostet ein fälschliches Verschwinden am meisten (Ampel
+            // springt sonst von geschlossen/warnend direkt auf offen, siehe User-Report
+            // 2026-09-08: Zug bei 70s "war auf einmal weg", danach sprang die Ampel auf grün).
+            // Bei 10s-Polltakt in dieser Phase deckt 90s ~9 Zyklen ab statt nur 4 — genug, um
+            // einen mehrzyklischen Merge-/Netz-Aussetzer zu überbrücken, ohne einen wirklich
+            // abgesagten Zug unbegrenzt lange zu zeigen. Weiter draußen bleibt es bei 40s
+            // (dort ist ein falsches Verschwinden nicht sicherheitsrelevant, dafür soll ein
+            // wirklich entfallener Zug dort zügig aus der Liste verschwinden).
+            let graceSeconds: TimeInterval = prev.minutesUntil(from: now) < 3 ? 90 : 40
+            if let confirmed = eventLastConfirmed[sig], now.timeIntervalSince(confirmed) < graceSeconds {
                 result.append(prev)   // echter kurzer Aussetzer → halten
             }
         }
@@ -653,10 +718,14 @@ final class CrossingViewModel {
         return 60
     }
 
+    /// voiceTasks werden hier BEWUSST NICHT gecancelt — die zuletzt (vor dem Backgrounding)
+    /// geplanten Ansage-Timer sollen mit den zuletzt bekannten Zeiten weiterlaufen können,
+    /// sonst verstummt die App komplett sobald man während der Fahrt das Handy sperrt.
+    /// Geops NICHT hier trennen (nur DB-Polling stoppen) — der Aufrufer (ContentView)
+    /// entscheidet abhängig von der Standortberechtigung, ob Geops im Hintergrund
+    /// weiterlaufen darf (siehe scenePhase-Handler).
     func stopAutoRefresh() {
         refreshTask?.cancel()
-        cancelVoiceTasks()
-        GeopsRealtimeService.shared.disconnect()
     }
 
     @MainActor
@@ -887,6 +956,7 @@ final class CrossingViewModel {
         smoothedCrossingTime   = smoothedCrossingTime.filter   { activeIds.contains($0.key) }
         acceptedDelayMinutes   = acceptedDelayMinutes.filter   { activeIds.contains($0.key) }
         pendingDelayReduction  = pendingDelayReduction.filter  { activeIds.contains($0.key) }
+        pendingDelayIncrease   = pendingDelayIncrease.filter   { activeIds.contains($0.key) }
         liveLockedTrains       = liveLockedTrains.filter       { activeIds.contains($0) }
         lastLiveAt             = lastLiveAt.filter             { activeIds.contains($0.key) }
         lastCalcLog            = lastCalcLog.filter            { activeIds.contains($0.key) }
@@ -1011,21 +1081,30 @@ final class CrossingViewModel {
         guard let announcer = voiceAnnouncer else { return }
 
         // Ein Timer pro Statusübergang (siehe CrossingEvent.status(at:) in Models.swift für
-        // die exakten Schwellen): 2,5min vorher -> warning, 1,5min vorher -> closed, bei
-        // gelernter Öffnungsverzögerung -> opening, kurz danach -> wieder open. So kommt bei
-        // jedem der vier Zustände (schließt bald/geschlossen/öffnet gleich/offen) eine eigene
-        // Ansage statt nur einmalig 2,5min vor Durchfahrt.
+        // die exakten Schwellen — MÜSSEN synchron bleiben): 3,0min vorher -> warning, 2,0min
+        // vorher -> closed (Schranke schließt real ca. 120s vor dem Zug), bei gelernter
+        // Öffnungsverzögerung -> opening, kurz danach -> wieder open. So kommt bei jedem der
+        // vier Zustände (schließt bald/geschlossen/öffnet gleich/offen) eine eigene Ansage
+        // statt nur einmalig vor Durchfahrt.
         for event in nextEvents {
-            let transitionOffsetsMinutes = [2.5, 1.5, -event.openingDelayMinutes, -event.openingDelayMinutes - 0.17]
+            let transitionOffsetsMinutes = [3.0, 2.0, -event.openingDelayMinutes, -event.openingDelayMinutes - 0.17]
 
             for offsetMinutes in transitionOffsetsMinutes {
                 let fireTime = event.estimatedCrossingTime.addingTimeInterval(-offsetMinutes * 60)
                 let delay    = fireTime.timeIntervalSinceNow
-                guard delay > 1 && delay < 5400 else { continue } // nur bis 90 min im Voraus
+                // -10s statt >1: scheduleVoiceAnnouncements() läuft bei jedem Datenrefresh
+                // (~alle 2s) neu und cancelt dabei alle bisher geplanten Tasks. Landete der
+                // exakte Ansage-Zeitpunkt in diesem Neuplanungs-Fenster, wurde mit ">1" gar
+                // kein Task mehr erstellt — die Ansage fiel lautlos aus, statt verspätet
+                // nachzuholen. Bis zu 10s "zu spät" jetzt noch zulassen (deckt die ~2s-
+                // Refresh-Lücke komfortabel ab) und sofort statt gar nicht auslösen; nur
+                // wirklich alte Zeitpunkte weiter überspringen.
+                guard delay > -10 && delay < 5400 else { continue } // nur bis 90 min im Voraus
+                let clampedDelay = max(delay, 0)
 
                 let task = Task { [weak self] in
                     guard !Task.isCancelled else { return }  // sofort prüfen (vor Sleep)
-                    try? await Task.sleep(for: .seconds(delay))
+                    try? await Task.sleep(for: .seconds(clampedDelay))
                     guard !Task.isCancelled, let self else { return }
 
                     let voiceEnabled = UserDefaults.standard.bool(forKey: "voiceEnabled")

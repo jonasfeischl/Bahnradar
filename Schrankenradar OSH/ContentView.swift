@@ -159,11 +159,11 @@ struct ContentView: View {
             case .background:
                 // Kurze Unterbrechungen (z.B. das System-Dialog für die Standort-Berechtigung)
                 // lassen die App kurz durch .background/.inactive laufen, obwohl der Nutzer sie
-                // gar nicht verlassen hat. Ein sofortiger stopAutoRefresh() trennt dabei die
-                // Geops-WebSocket-Verbindung UND leert den gesamten Live-Zustand (Fahrzeuge,
-                // Stopsequence-Zeiten) — beim sofortigen Reconnect landen die Züge dann in einer
-                // neuen, leicht anderen Zuordnung, was als Sprung in der Schrankenzeit sichtbar
-                // wurde. Darum erst nach einer kurzen Gnadenfrist wirklich stoppen.
+                // gar nicht verlassen hat. Ein sofortiges Trennen (DB-Polling, ggf. Geops) würde
+                // dabei den gesamten Live-Zustand leeren (Fahrzeuge, Stopsequence-Zeiten) — beim
+                // sofortigen Reconnect landen die Züge dann in einer neuen, leicht anderen
+                // Zuordnung, was als Sprung in der Schrankenzeit sichtbar wurde. Darum erst nach
+                // einer kurzen Gnadenfrist wirklich stoppen.
                 backgroundGraceTask?.cancel()
                 backgroundGraceTask = Task {
                     try? await Task.sleep(for: .seconds(3))
@@ -172,19 +172,24 @@ struct ContentView: View {
                     // Wert VOR dem Stoppen der Sensoren lesen
                     let wasDriving = viewModel.isDriving
 
-                    // Live-Datenrefresh (geOps-WebSocket, DB-Polling) pausiert im Hintergrund
-                    // so oder so — dafür gibt's kein eigenes Hintergrund-Netzwerk-Setup. Die
-                    // zuletzt geplanten Ansage-Timer (aus dem letzten Refresh vor dem
-                    // Backgrounding) laufen trotzdem mit den zuletzt bekannten Zeiten weiter.
+                    // DB-Polling stoppt hier immer — dafür gibt's kein eigenes Hintergrund-
+                    // Netzwerk-Setup. Geops wird unten NUR bei fehlender "Immer"-Berechtigung
+                    // mitgetrennt (siehe dort); bereits geplante Ansage-Timer laufen so oder so
+                    // mit den zuletzt bekannten Zeiten weiter (stopAutoRefresh cancelt sie nicht).
                     viewModel.stopAutoRefresh()
 
                     // Mit "Immer"-Standortberechtigung läuft die Sprachausgabe selbst im
                     // Hintergrund weiter (siehe LocationMonitor: allowsBackgroundLocationUpdates
                     // + UIBackgroundModes "location"/"audio") — dafür GPS/Fahrterkennung NICHT
-                    // stoppen, sonst bricht genau das ab, was das erst ermöglicht. Ohne
-                    // "Immer"-Freigabe (nur "Bei Nutzung" erlaubt) pausiert GPS im Hintergrund
-                    // ohnehin durch iOS selbst — dann gibt es bewusst keine Warnung mehr, bis
-                    // die App wieder geöffnet wird (kein Mitteilungs-Rückfall mehr).
+                    // stoppen, sonst bricht genau das ab, was das erst ermöglicht. Aus demselben
+                    // Grund bleibt Geops hier verbunden (der App-Prozess wird durch die aktiven
+                    // Hintergrundmodi ohnehin am Leben gehalten) — Versuch, damit Ansagen im
+                    // Hintergrund weiter aktuelle statt nur zuletzt bekannte Zeiten nutzen.
+                    // Muss noch bei einer echten Fahrt mit gesperrtem Handy verifiziert werden,
+                    // ob iOS die Verbindung wirklich durchgehend offen lässt. Ohne "Immer"-
+                    // Freigabe (nur "Bei Nutzung" erlaubt) pausiert GPS im Hintergrund ohnehin
+                    // durch iOS selbst — dann Geops und Sensoren bewusst mittrennen, kein
+                    // Mitteilungs-Rückfall mehr bis die App wieder geöffnet wird.
                     if locationMonitor.authorizationStatus == .authorizedAlways {
                         // Hörbare Bestätigung bei jeder erkannten Fahrt, unabhängig von der
                         // Schranken-Nähe — die Bestätigung soll gerade VOR Ankunft an der
@@ -197,6 +202,7 @@ struct ContentView: View {
                     } else {
                         drivingDetector.stop()
                         locationMonitor.stop()
+                        GeopsRealtimeService.shared.disconnect()
                     }
                 }
 

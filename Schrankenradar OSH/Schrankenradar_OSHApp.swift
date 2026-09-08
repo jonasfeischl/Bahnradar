@@ -21,6 +21,10 @@ struct Schrankenradar_OSHApp: App {
 
     @AppStorage("permissionsDeferred") private var permissionsDeferred = false
 
+    /// Gleicher Key wie SettingsView/HelpView — schaltet den 4. Tab "Vergleich" frei (siehe
+    /// dort für die Freischalt-Geste). Reagiert live, ohne App-Neustart.
+    @AppStorage("adminUnlocked") private var adminUnlocked = false
+
     /// Splash mit drehendem Radar-Logo, kurz beim Kaltstart über allem sichtbar. Läuft
     /// über einen eigenen, unabhängigen Timer statt in der Sequenz unten — die kann durch
     /// Onboarding (fullScreenCover) beliebig lange dauern; der Splash liegt in dem Fall
@@ -58,6 +62,15 @@ struct Schrankenradar_OSHApp: App {
                         .tabItem {
                             Label("Einstellungen", systemImage: "gearshape.fill")
                         }
+
+                    // Nur sichtbar nach Admin-Login (siehe adminUnlocked oben) — Rohdaten-
+                    // Vergleich der drei APIs, nichts für normale Nutzer.
+                    if adminUnlocked {
+                        APIComparisonView()
+                            .tabItem {
+                                Label("Vergleich", systemImage: "chart.bar.doc.horizontal")
+                            }
+                    }
                 }
                 // Fahrterkennung + isDriving/isNearCrossing-Sync bewusst hier auf Tab-View-Ebene
                 // statt in ContentView — lief vorher nur auf dem Radar-Tab, weil ContentViews
@@ -129,6 +142,17 @@ struct Schrankenradar_OSHApp: App {
                             viewModel: viewModel, locationMonitor: locationMonitor, drivingDetector: drivingDetector
                         )
                         permissionsDeferred = false
+                    } else {
+                        // Normaler Wiedereinstieg (Onboarding erledigt, nichts aufgeschoben) —
+                        // PermissionRequester.requestAll() läuft dann NICHT, das startete
+                        // drivingDetector.start() bisher aber nur dort bzw. beim Zurückkehren
+                        // aus dem Hintergrund. Bei einem echten Kaltstart (App komplett beendet
+                        // und neu geöffnet) lief Core Motion dadurch nie an — nur der trägere
+                        // GPS-Fallback blieb übrig, bis man die App einmal in den Hintergrund
+                        // schickte und zurückholte ("Neustart nötig, damit Fahrterkennung
+                        // funktioniert"). start() prüft selbst den Berechtigungsstatus, ist
+                        // also gefahrlos wiederholt aufrufbar.
+                        drivingDetector.start()
                     }
 
                     appStartupSequenceComplete = true

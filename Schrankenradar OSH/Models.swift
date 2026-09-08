@@ -102,8 +102,11 @@ struct CrossingEvent: Identifiable {
 
     func status(at date: Date) -> CrossingStatus {
         let minutes = minutesUntil(from: date)
-        if minutes > 2.5                         { return .open }
-        if minutes > 1.5                         { return .warning }
+        // Schranke schließt tatsächlich ca. 120s (2min) vor dem Zug, nicht 90s — daher
+        // "closed" ab 2.0min statt 1.5min. "warning" entsprechend auf 3.0min verschoben,
+        // damit der bisherige 60s-Vorlauf vor der Schließung erhalten bleibt.
+        if minutes > 3.0                         { return .open }
+        if minutes > 2.0                         { return .warning }
         if minutes > -openingDelayMinutes        { return .closed }
         if minutes > -openingDelayMinutes - 0.17 { return .opening }
         return .open
