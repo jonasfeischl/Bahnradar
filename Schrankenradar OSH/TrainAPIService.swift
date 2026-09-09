@@ -110,6 +110,41 @@ struct TrainAPIService {
         return dbEntries
     }
 
+    /// Zweite, unabhängige DB-Fahrplan-Abfrage für Übergänge, deren eigene stationEVA
+    /// strukturell nie RE/RB führt (siehe CrossingLocation.regionalStationEVA-Kommentar) — fragt
+    /// stattdessen die nächste Station ab, an der diese Züge TATSÄCHLICH halten, und behält nur
+    /// die Nicht-S-Bahn-Einträge (S-Bahn kommt bereits über fetchDBEntries/stationEVA, sonst
+    /// gäbe es Dubletten mit ggf. abweichender Zeitbasis). Der Aufrufer (CrossingViewModel)
+    /// wendet crossing.regionalOffsetToMunich/-Freising an statt der normalen Offsets.
+    func fetchRegionalDBEntries(crossing: CrossingLocation) async throws -> [TrainEntry] {
+        guard let regionalEVA = crossing.regionalStationEVA else { return [] }
+        let now   = Date()
+        let plus1 = now.addingTimeInterval(3600)
+        let plus2 = now.addingTimeInterval(5400)
+
+        async let batch1  = fetchPlan(for: now,   eva: regionalEVA)
+        async let batch2  = fetchPlan(for: plus1, eva: regionalEVA)
+        async let batch3  = fetchPlan(for: plus2, eva: regionalEVA)
+        async let changes = fetchChanges(eva: regionalEVA)
+
+        let (stops1, stops2, stops3, changeMap) = try await (batch1, batch2, batch3, changes)
+
+        var seenDB = Set<String>()
+        let allStops = (stops1 + stops2 + stops3).filter { seenDB.insert($0.id).inserted }
+
+        var entries: [TrainEntry] = allStops.compactMap { stop -> TrainEntry? in
+            var enriched = stop
+            if let change = changeMap[stop.id] { enriched.applyChange(change) }
+            guard let entry = TrainEntry(from: enriched, onlyS1: false, confirmedLines: nil),
+                  !entry.lineName.hasPrefix("S") else { return nil }
+            return entry
+        }
+        entries = entries.filter { $0.actualTime <= now.addingTimeInterval(5400) }
+
+        DebugLog.shared.add("[Regional] \(crossing.name): \(entries.count) RE/RB-Einträge von EVA \(regionalEVA)")
+        return entries
+    }
+
     /// Nur für den Admin-Vergleichs-Tab (API-Vergleich): identischer DB-Fetch/Parse wie
     /// `fetchDBEntries` oben, aber bewusst OHNE die MVG-Überlagerung — sonst wäre "DB" im
     /// Vergleich nicht mehr DBs eigene Meinung, sondern hätte MVGs Verspätung schon eingemischt,
@@ -152,6 +187,38 @@ struct TrainAPIService {
         await fetchMVGDepartures(globalId: crossing.mvgGlobalId, includeRegionalTrains: crossing.mvgSupportsRegionalTrains)
     }
 
+    /// Nur für den Admin-Vergleichs-Tab (Kombiniert-Seite): baut aus den vom Nutzer ausgewählten
+    /// Quellen eine ABGEGLICHENE, deduplizierte Liste — genau dieselbe Zuordnungslogik wie die
+    /// Produktions-Pipeline (MVG-Überlagerung + Geops-`merge`/`deduplicate`), nur parametrisiert
+    /// nach Quellen-Auswahl statt immer alle drei zu verwenden. DB dient dabei zwingend als Anker
+    /// (wie überall sonst in dieser Datei — `bestGeopsMatch`/`bestMVGMatch` matchen beide auf
+    /// einen `TrainEntry`); ohne DB gibt es dafür keine bestehende Zuordnungslogik, dieser Fall
+    /// wird vom Aufrufer separat behandelt (APIComparisonViewModel fällt dann auf eine einfache,
+    /// unabgeglichene Konkatenation zurück statt diese Funktion aufzurufen).
+    func combineForComparison(dbEntries: [TrainEntry],
+                               geopsStops: [GeopsStopDeparture]?,
+                               geopsVehicles: [String: GeopsVehicle],
+                               mvgDepartures: [MVGService.Departure]?) -> [TrainEntry] {
+        var entries = dbEntries
+
+        if let mvgDepartures, !mvgDepartures.isEmpty {
+            entries = entries.map { entry in
+                guard let match = bestMVGMatch(for: entry, in: mvgDepartures), match.isRealtime else {
+                    return entry
+                }
+                return entry.with(actualTime: match.realtimeTime)
+            }
+        }
+
+        if let geopsStops {
+            entries = merge(dbEntries: entries, geopsStops: geopsStops, geopsVehicles: geopsVehicles)
+        } else {
+            entries = deduplicate(entries)
+        }
+
+        return entries.sorted { $0.actualTime < $1.actualTime }
+    }
+
     /// Gecachte DB-Entries mit dem AKTUELLEN Geops-Stand mergen (KEIN Netz-Call).
     /// Dadurch erscheinen neue Geops-Züge sofort, ohne erneuten DB-Fetch.
     @MainActor
@@ -190,7 +257,11 @@ struct TrainAPIService {
     ///   • Echte Durchfahrten ohne DB-Halt (Güterzüge, durchfahrende RE/RB) — das läuft über
     ///     einen komplett separaten Mechanismus (detectNonSBahnApproach/freightApproaches in
     ///     GeopsRealtimeService + CrossingViewModel), nicht über diese Merge-Funktion.
-    private func merge(dbEntries: [TrainEntry],
+    // `fileprivate` statt `private` (nicht `internal`!) — bleibt datei-scoped, reine
+    // Compile-Zeit-Sichtbarkeit ohne Verhaltensänderung, ermöglicht aber Wiederverwendung durch
+    // `combineForComparison` (Admin-Vergleichs-Tab, siehe unten) statt die fein abgestimmte
+    // Matching-Logik dort zu duplizieren.
+    fileprivate func merge(dbEntries: [TrainEntry],
                        geopsStops: [GeopsStopDeparture],
                        geopsVehicles: [String: GeopsVehicle]) -> [TrainEntry] {
 
@@ -229,7 +300,7 @@ struct TrainAPIService {
         String(lineName.prefix(while: { $0.isLetter }))
     }
 
-    private func deduplicate(_ entries: [TrainEntry]) -> [TrainEntry] {
+    fileprivate func deduplicate(_ entries: [TrainEntry]) -> [TrainEntry] {
         let sorted = entries.sorted { $0.actualTime < $1.actualTime }
         var kept: [TrainEntry] = []
 
@@ -337,7 +408,7 @@ struct TrainAPIService {
 
     /// Sucht die beste MVG-Abfahrt für einen DB-TrainEntry — gleiche Linie, enge Zeitnähe,
     /// widerspricht nicht dem bekannten Fahrtziel (falls vorhanden). Analog zu bestGeopsMatch.
-    private func bestMVGMatch(for entry: TrainEntry,
+    fileprivate func bestMVGMatch(for entry: TrainEntry,
                                in departures: [MVGService.Departure]) -> MVGService.Departure? {
         let tol: TimeInterval = 90
         func hintConflicts(_ dep: MVGService.Departure) -> Bool {
@@ -707,15 +778,19 @@ struct TrainEntry: Identifiable, Codable {
             // nicht sicher genug zum Anzeigen, lieber ablehnen statt zu raten.
             return nil
         } else {
-            // Andere Zugart (RE, RB, … oder "ARV" mit einer Liniennummer wie "RE72", die keiner
-            // S-Bahn-Linie entspricht) — fährt laut Vor-Ort-Beobachtung real über diese
-            // Übergänge, wird deshalb NICHT verworfen, sondern mit echtem Namen gezeigt. Bei
-            // "ARV" steckt die echte Zugart (z.B. "RE") im Präfix der Liniennummer, nicht in
-            // der Kategorie selbst — die "ARV"-Kategorie würde sonst einen irreführenden Namen
-            // wie "ARV72" erzeugen.
-            let realCategory = category == "ARV" ? String(lineRaw.prefix(while: { $0.isLetter })) : category
-            let number = stop.trainNumber ?? lineRaw
-            lineName = number.isEmpty ? lineRaw : "\(realCategory.isEmpty ? category : realCategory)\(number)"
+            // Andere Zugart (RE, RB, … oder "ARV" mit einer Liniennummer wie "RE72" in lineRaw,
+            // die keiner S-Bahn-Linie entspricht) — fährt laut Vor-Ort-Beobachtung real über diese
+            // Übergänge, wird deshalb NICHT verworfen, sondern mit echtem Namen gezeigt. lineRaw
+            // (dp/ar l=) ist bei RE/RB bereits die öffentliche Linienbezeichnung (z.B. "RB33",
+            // "RE3") — Live-Test 2026-09-09 an Feldmoching zeigte, dass die vorherige Reihenfolge
+            // (trainNumber zuerst) stattdessen die interne DB-Zugnummer verwendete, weil tl n=
+            // bei RE/RB fast immer gesetzt ist ("RB59231" statt "RB33" — unbrauchbar für Nutzer).
+            if !lineRaw.isEmpty {
+                lineName = lineRaw
+            } else {
+                let number = stop.trainNumber ?? ""
+                lineName = number.isEmpty ? category : "\(category)\(number)"
+            }
         }
 
         let actual  = stop.actualDepartureTime ?? planned

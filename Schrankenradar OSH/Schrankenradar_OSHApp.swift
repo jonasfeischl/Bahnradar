@@ -42,6 +42,16 @@ struct Schrankenradar_OSHApp: App {
     /// den anderen"). @AppStorage statt @State, damit es reaktiv in anderen Views ankommt.
     @AppStorage("appStartupSequenceComplete") private var appStartupSequenceComplete = false
 
+    /// @AppStorage-Defaults (z.B. "voiceEnabled" = true) gelten nur innerhalb des
+    /// @AppStorage-Wrappers selbst — ein roher UserDefaults.standard.bool(forKey:)-Zugriff
+    /// (z.B. in CrossingViewModel) sieht ohne dieses register() stattdessen Foundations
+    /// eigenen Default (false), solange der Nutzer den Schalter nie manuell betätigt hat.
+    /// register(defaults:) gleicht beide Zugriffswege an, ohne je etwas explizit Gesetztes
+    /// zu überschreiben.
+    init() {
+        UserDefaults.standard.register(defaults: ["voiceEnabled": true])
+    }
+
     var body: some Scene {
         WindowGroup {
             ZStack {
@@ -77,7 +87,7 @@ struct Schrankenradar_OSHApp: App {
                 // .onReceive/.onChange bei Tab-Wechsel pausieren (siehe ContentView.onDisappear
                 // "Tab-Wechsel"-Kommentar). Dadurch fror isDriving/isNearCrossing ein, sobald man
                 // z.B. während der Fahrt auf dem Schranken-Modus-Tab war — keine Sprachansage mehr,
-                // weil scheduleVoiceAnnouncements() genau diese beiden Werte prüft.
+                // weil evaluateVoiceAnnouncement() (CrossingViewModel) genau diese beiden Werte prüft.
                 .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
                     drivingDetector.tick()
                 }
@@ -113,6 +123,7 @@ struct Schrankenradar_OSHApp: App {
                     // korrekt aktualisiert wurden.
                     viewModel.setup(voiceAnnouncer: voiceAnnouncer)
                     viewModel.startAutoRefresh()
+                    viewModel.startVoiceMonitor()
 
                     if !hasCompletedOnboarding {
                         // Erster Start: Willkommen + Berechtigungs-Erklärung zeigen.
@@ -155,6 +166,12 @@ struct Schrankenradar_OSHApp: App {
                         drivingDetector.start()
                     }
 
+                    // Kaltstart-Gegenstück zu announceBackgroundActive() — ContentView.onChange
+                    // (scenePhase == .active) deckt nur eine echte Rückkehr aus dem Hintergrund
+                    // ab (wasInBackground-Guard), nicht den allerersten Start.
+                    if UserDefaults.standard.bool(forKey: "voiceEnabled") {
+                        voiceAnnouncer.announceAppActive()
+                    }
                     appStartupSequenceComplete = true
                 }
                 .fullScreenCover(isPresented: $showOnboarding) {

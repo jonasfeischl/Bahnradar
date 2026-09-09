@@ -22,6 +22,23 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
     /// 2026-07-22: "jetzt mvv grau angezeigt"). Jetzt wird BAHN nur noch abgefragt, wo es
     /// tatsächlich Daten geben kann.
     var mvgSupportsRegionalTrains: Bool = false
+    /// EVA einer benachbarten Station, an der RE/RB TATSÄCHLICH halten — für Übergänge, deren
+    /// eigene stationEVA strukturell nie Regionalzüge führt (reine S-Bahn-Station, Züge fahren
+    /// nur durch, ohne Fahrgastwechsel → tauchen in keiner Stations-Abfahrtstafel auf, siehe
+    /// TrainAPIService.fetchRegionalDBEntries). Live-Check 2026-09-09: Oberschleißheim (8004580)
+    /// hatte an einem kompletten Tag (Std. 05-22) 0 von 202 RE/RB-Einträgen; Unterschleißheim
+    /// (8006688, nächster Regionalzug-Halt Richtung Freising/Landshut) dagegen zuverlässig RB33
+    /// (~alle 2h). nil = keine separate Referenz nötig (z.B. Feldmoching, dort hält RB33 selbst).
+    var regionalStationEVA: String? = nil
+    /// Offset Abfahrt/Ankunft an regionalStationEVA → Übergang, analog zu offsetToMunich/
+    /// -Freising aber relativ zur entfernteren Regional-Referenzstation. Grobschätzung
+    /// (2026-09-09): aus echten RB33-Zeiten an Feldmoching UND Unterschleißheim (identische
+    /// Zugnummern, ~5min Segment) plus dem S-Bahn-Fahrplanverhältnis Feldmoching–OSH–
+    /// Unterschleißheim als Interpolationsstütze (Oberschleißheims eigener 180s-Offset + ~60s
+    /// gemessene S-Bahn-Fahrzeit Oberschleißheim↔Unterschleißheim). NICHT GPS-gemessen — bei
+    /// Gelegenheit per echter RB/RE-Durchfahrt im Diagnose-Log verifizieren/nachjustieren.
+    var regionalOffsetToMunich: Double = 0
+    var regionalOffsetToFreising: Double = 0
     let latitude: Double
     let longitude: Double
     /// Erfassungsradius für die GPS-Auto-Kalibrierung (detectCrossingPassage): wie nah muss
@@ -193,6 +210,9 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
             // (deshalb tauchte dort z.B. nie eine S1 auf, obwohl geOps sie live bestätigte).
             stationEVA: "8004580",
             mvgGlobalId: "de:09184:2000",
+            regionalStationEVA: "8006688",
+            regionalOffsetToMunich: 240,
+            regionalOffsetToFreising: -240,
             // Vor-Ort per GPS nachgemessen (48°15'02.8"N 11°33'13.5"E) — alte Koordinate hatte
             // beim Längengrad ca. 337m Fehler, dadurch kam nie eine Trajektorie <200m heran.
             latitude: 48.250778,

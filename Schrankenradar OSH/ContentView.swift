@@ -149,6 +149,9 @@ struct ContentView: View {
                 backgroundGraceTask = nil
                 guard wasInBackground else { return }   // nur echter Hintergrund→Vordergrund
                 wasInBackground = false
+                // Gegenstück zu "Hintergrundmodus aktiv" beim Verlassen — immer, unabhängig
+                // vom Fahrstatus.
+                if voiceEnabled { voiceAnnouncer.announceAppActive() }
                 // App aus Hintergrund: Geops reconnecten + alles neu starten
                 viewModel.startAutoRefresh()
                 drivingDetector.start()
@@ -159,7 +162,7 @@ struct ContentView: View {
             case .background:
                 // Kurze Unterbrechungen (z.B. das System-Dialog für die Standort-Berechtigung)
                 // lassen die App kurz durch .background/.inactive laufen, obwohl der Nutzer sie
-                // gar nicht verlassen hat. Ein sofortiges Trennen (DB-Polling, ggf. Geops) würde
+                // gar nicht verlassen hat. Ein sofortiges Trennen (DB-Polling, Geops) würde
                 // dabei den gesamten Live-Zustand leeren (Fahrzeuge, Stopsequence-Zeiten) — beim
                 // sofortigen Reconnect landen die Züge dann in einer neuen, leicht anderen
                 // Zuordnung, was als Sprung in der Schrankenzeit sichtbar wurde. Darum erst nach
@@ -169,40 +172,34 @@ struct ContentView: View {
                     try? await Task.sleep(for: .seconds(3))
                     guard !Task.isCancelled else { return }
                     wasInBackground = true
-                    // Wert VOR dem Stoppen der Sensoren lesen
-                    let wasDriving = viewModel.isDriving
 
-                    // DB-Polling stoppt hier immer — dafür gibt's kein eigenes Hintergrund-
-                    // Netzwerk-Setup. Geops wird unten NUR bei fehlender "Immer"-Berechtigung
-                    // mitgetrennt (siehe dort); bereits geplante Ansage-Timer laufen so oder so
-                    // mit den zuletzt bekannten Zeiten weiter (stopAutoRefresh cancelt sie nicht).
-                    viewModel.stopAutoRefresh()
+                    // Geops (WebSocket) hält im Hintergrund keine zuverlässige Verbindung —
+                    // deshalb hier immer trennen, unabhängig von der Standortberechtigung.
+                    // Bereits geplante Ansage-Timer laufen so oder so mit den zuletzt bekannten
+                    // Zeiten weiter (stopAutoRefresh cancelt sie nicht).
+                    GeopsRealtimeService.shared.disconnect()
 
                     // Mit "Immer"-Standortberechtigung läuft die Sprachausgabe selbst im
                     // Hintergrund weiter (siehe LocationMonitor: allowsBackgroundLocationUpdates
                     // + UIBackgroundModes "location"/"audio") — dafür GPS/Fahrterkennung NICHT
                     // stoppen, sonst bricht genau das ab, was das erst ermöglicht. Aus demselben
-                    // Grund bleibt Geops hier verbunden (der App-Prozess wird durch die aktiven
-                    // Hintergrundmodi ohnehin am Leben gehalten) — Versuch, damit Ansagen im
-                    // Hintergrund weiter aktuelle statt nur zuletzt bekannte Zeiten nutzen.
-                    // Muss noch bei einer echten Fahrt mit gesperrtem Handy verifiziert werden,
-                    // ob iOS die Verbindung wirklich durchgehend offen lässt. Ohne "Immer"-
-                    // Freigabe (nur "Bei Nutzung" erlaubt) pausiert GPS im Hintergrund ohnehin
-                    // durch iOS selbst — dann Geops und Sensoren bewusst mittrennen, kein
-                    // Mitteilungs-Rückfall mehr bis die App wieder geöffnet wird.
+                    // Grund bleibt hier auch das DB-Polling (MVG mit DB-Fallback, TrainAPIService)
+                    // aktiv statt Geops — der App-Prozess wird durch die aktiven Hintergrundmodi
+                    // ohnehin am Leben gehalten, REST-Polling ist dabei zuverlässiger als eine
+                    // offene WebSocket-Verbindung. Ohne "Immer"-Freigabe (nur "Bei Nutzung"
+                    // erlaubt) pausiert GPS im Hintergrund ohnehin durch iOS selbst — dann auch
+                    // DB-Polling und Sensoren bewusst mitstoppen, kein Update mehr bis die App
+                    // wieder geöffnet wird.
                     if locationMonitor.authorizationStatus == .authorizedAlways {
-                        // Hörbare Bestätigung bei jeder erkannten Fahrt, unabhängig von der
-                        // Schranken-Nähe — die Bestätigung soll gerade VOR Ankunft an der
-                        // Schranke zeigen, dass die App im Hintergrund mitläuft (nicht erst,
-                        // wenn man ohnehin schon da ist). Nur beim simplen Wegwischen daheim
-                        // (nicht am Fahren) bleibt sie bewusst aus.
-                        if voiceEnabled && wasDriving {
+                        // Hörbare Bestätigung bei JEDEM echten Verlassen der App, unabhängig
+                        // vom Fahrstatus (Nutzerentscheidung) — vorher nur bei erkannter Fahrt.
+                        if voiceEnabled {
                             voiceAnnouncer.announceBackgroundActive()
                         }
                     } else {
+                        viewModel.stopAutoRefresh()
                         drivingDetector.stop()
                         locationMonitor.stop()
-                        GeopsRealtimeService.shared.disconnect()
                     }
                 }
 

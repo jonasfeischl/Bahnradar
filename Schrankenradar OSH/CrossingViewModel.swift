@@ -28,10 +28,13 @@ final class CrossingViewModel {
     var isDriving: Bool = false
     var isNearCrossing: Bool = false
     private weak var voiceAnnouncer: VoiceAnnouncer?
-    private var voiceTasks: [Task<Void, Never>] = []
-    /// Verhindert doppelte Ansagen, wenn mehrere geplante Übergangs-Timer (z.B. von
-    /// überlappenden Zügen) auf denselben, bereits angesagten Status treffen.
-    private var lastAnnouncedStatus: CrossingStatus?
+    /// Dauerhaft laufender 1s-Loop statt Pre-Scheduling (siehe startVoiceMonitor()).
+    private var voiceMonitorTask: Task<Void, Never>?
+    /// Verhindert doppelte Ansagen, wenn sich Übergang+Status seit der letzten Ansage nicht
+    /// geändert haben. Der Übergang ist Teil des Schlüssels, damit ein Crossing-Wechsel
+    /// (z.B. automatisch während der Fahrt) immer eine frische Ansage zulässt, statt vom
+    /// zuletzt angesagten Status des ALTEN Übergangs blockiert zu werden.
+    private var lastAnnounced: (crossingId: String, status: CrossingStatus)?
     private var calibrationObserver: Any?
     private var autoOffsetObserver: Any?
     private var geopsChangeObserver: Any?
@@ -44,6 +47,10 @@ final class CrossingViewModel {
     // neue Geops-Züge erschienen früher erst beim nächsten DB-Fetch / Tab-Wechsel).
     private var cachedDBEntries: [TrainEntry] = []
     private var cachedDBCrossingId: String = ""
+    // RE/RB von crossing.regionalStationEVA (z.B. Unterschleißheim für OSH) — nur befüllt wenn
+    // gesetzt, siehe CrossingLocation.regionalStationEVA. Bewusst NICHT im Offline-Cache
+    // (CachedSchedule) enthalten: seltene Züge, Fallback auf "keine Regionalzüge" ist unkritisch.
+    private var cachedRegionalEntries: [TrainEntry] = []
 
     // Offline-Modus: True wenn gerade zwischengespeicherte (veraltete) Fahrplandaten angezeigt werden
     var isShowingCachedData: Bool = false
@@ -386,7 +393,12 @@ final class CrossingViewModel {
         lastWidgetReloadAt = .distantPast  // Widget soll neuen Übergang sofort zeigen
         cachedDBEntries = []           // alten DB-Cache ungültig machen (falscher Übergang)
         cachedDBCrossingId = ""
+        cachedRegionalEntries = []      // Regionalzüge des alten Übergangs verwerfen
         lastTrains = []                 // Züge des alten Übergangs verwerfen (sonst Fallback in rebuildEventsFromCache)
+        // Nicht zwingend nötig (lastAnnounced ist ohnehin über crossingId geschlüsselt), aber
+        // explizit als Sicherheitsnetz gegen eine Race mit evaluateVoiceAnnouncement() zwischen
+        // dem Leeren von nextEvents oben und dem fetchData() unten.
+        lastAnnounced = nil
         restoreFromCache(crossingId: store.selectedId)
         Task { await fetchData() }
     }
@@ -669,10 +681,10 @@ final class CrossingViewModel {
     }
 
     /// Nur DB-Fetch pausieren (Tab-Wechsel weg vom Radar).
-    /// Geops bleibt verbunden.
+    /// Geops bleibt verbunden. Der Voice-Monitor (startVoiceMonitor()) läuft bewusst weiter —
+    /// er ist nicht an den Refresh-Lifecycle gekoppelt, siehe dessen Doku.
     func pauseRefresh() {
         refreshTask?.cancel()
-        cancelVoiceTasks()
     }
 
     private func startDBFetch() {
@@ -718,12 +730,12 @@ final class CrossingViewModel {
         return 60
     }
 
-    /// voiceTasks werden hier BEWUSST NICHT gecancelt — die zuletzt (vor dem Backgrounding)
-    /// geplanten Ansage-Timer sollen mit den zuletzt bekannten Zeiten weiterlaufen können,
+    /// Der Voice-Monitor (startVoiceMonitor()) wird hier BEWUSST NICHT gestoppt — er ist gar
+    /// nicht an refreshTask gekoppelt und soll mit den zuletzt bekannten Daten weiterlaufen,
     /// sonst verstummt die App komplett sobald man während der Fahrt das Handy sperrt.
-    /// Geops NICHT hier trennen (nur DB-Polling stoppen) — der Aufrufer (ContentView)
-    /// entscheidet abhängig von der Standortberechtigung, ob Geops im Hintergrund
-    /// weiterlaufen darf (siehe scenePhase-Handler).
+    /// Wird vom Aufrufer (ContentView) nur beim vollständigen Stoppen (keine "Immer"-
+    /// Standortberechtigung) aufgerufen — mit "Immer" bleibt das DB-Polling im Hintergrund
+    /// bewusst aktiv (siehe scenePhase-Handler), Geops trennt der Aufrufer separat immer.
     func stopAutoRefresh() {
         refreshTask?.cancel()
     }
@@ -746,6 +758,9 @@ final class CrossingViewModel {
             }
             cachedDBEntries   = dbEntries
             cachedDBCrossingId = crossing.id
+            // Best-effort: eigener try? statt throws, ein Fehler hier soll den normalen
+            // S-Bahn-Fetch oben nicht mit zu Fall bringen (Regionalzüge sind ein Bonus).
+            cachedRegionalEntries = (try? await service.fetchRegionalDBEntries(crossing: crossing)) ?? []
             let trains = service.mergeWithCurrentGeops(dbEntries: dbEntries,
                                                        crossing: crossing)
             dbConnected = true
@@ -755,7 +770,6 @@ final class CrossingViewModel {
             cacheSchedule(trains, crossingId: crossing.id)
             nextEvents = stabilize(buildEvents(from: trains))
             lastUpdated = Date()
-            scheduleVoiceAnnouncements()
             // Daten für Siri-Intents + Widget speichern
             let id = crossing.id
             UserDefaults.standard.set(worstUpcomingStatus.rawString, forKey: "lastStatus_\(id)")
@@ -950,6 +964,45 @@ final class CrossingViewModel {
             ))
         }
 
+        // Regionalzüge (RE/RB) über eine benachbarte Referenzstation (siehe
+        // CrossingLocation.regionalStationEVA) — für Übergänge wie OSH, deren eigene stationEVA
+        // strukturell nie RE/RB führt (reine S-Bahn-Station, siehe Kommentar dort). Gleiche
+        // Struktur wie der Güterzug-Block oben, aber DB-Fahrplan-basiert (cachedRegionalEntries)
+        // statt Geops-GPS-basiert — daher isLiveData: false (keine Live-Bestätigung).
+        for entry in cachedRegionalEntries where !entry.isCancelled {
+            let toMunichRegional = entry.direction == .toMunich
+            let regionalOffset = toMunichRegional ? selectedCrossing.regionalOffsetToMunich
+                                                   : selectedCrossing.regionalOffsetToFreising
+            let crossingTime = entry.actualTime.addingTimeInterval(regionalOffset)
+            guard crossingTime.timeIntervalSinceNow > -(openingDelay + 30),
+                  // Nicht doppelt: weder mit einem DB-/S-Bahn-Event noch mit einer per GPS
+                  // erkannten Annäherung desselben Zuges (falls Geops ihn zusätzlich sieht).
+                  !events.contains(where: {
+                      $0.train.resolvedDirection == entry.direction &&
+                      abs($0.estimatedCrossingTime.timeIntervalSince(crossingTime)) < 90
+                  })
+            else { continue }
+            let regionalId = "regional_\(entry.id)"
+            let regionalDep = TrainDeparture(
+                id:                   regionalId,
+                lineName:             entry.lineName,
+                direction:            entry.direction.label,
+                resolvedDirection:    entry.direction,
+                scheduledTime:        entry.scheduledTime,
+                actualTime:           entry.actualTime,
+                delayMinutes:         entry.delayMinutes,
+                isArrival:            false,
+                finalDestinationHint: entry.finalDestinationHint
+            )
+            events.append(CrossingEvent(
+                id:                    regionalId,
+                train:                 regionalDep,
+                estimatedCrossingTime: crossingTime,
+                openingDelayMinutes:   openingDelay / 60,
+                isLiveData:            false
+            ))
+        }
+
         // Geglättete Zeiten/Verspätungs-Status für Züge löschen, die nicht mehr in der
         // aktuellen Liste sind (sonst wachsen die Dictionaries unbegrenzt über den ganzen Tag).
         let activeIds = Set(trains.map { $0.id })
@@ -1076,61 +1129,51 @@ final class CrossingViewModel {
 
     // MARK: - Background Voice
 
-    private func scheduleVoiceAnnouncements() {
-        cancelVoiceTasks()
-        guard let announcer = voiceAnnouncer else { return }
-
-        // Ein Timer pro Statusübergang (siehe CrossingEvent.status(at:) in Models.swift für
-        // die exakten Schwellen — MÜSSEN synchron bleiben): 3,0min vorher -> warning, 2,0min
-        // vorher -> closed (Schranke schließt real ca. 120s vor dem Zug), bei gelernter
-        // Öffnungsverzögerung -> opening, kurz danach -> wieder open. So kommt bei jedem der
-        // vier Zustände (schließt bald/geschlossen/öffnet gleich/offen) eine eigene Ansage
-        // statt nur einmalig vor Durchfahrt.
-        for event in nextEvents {
-            let transitionOffsetsMinutes = [3.0, 2.0, -event.openingDelayMinutes, -event.openingDelayMinutes - 0.17]
-
-            for offsetMinutes in transitionOffsetsMinutes {
-                let fireTime = event.estimatedCrossingTime.addingTimeInterval(-offsetMinutes * 60)
-                let delay    = fireTime.timeIntervalSinceNow
-                // -10s statt >1: scheduleVoiceAnnouncements() läuft bei jedem Datenrefresh
-                // (~alle 2s) neu und cancelt dabei alle bisher geplanten Tasks. Landete der
-                // exakte Ansage-Zeitpunkt in diesem Neuplanungs-Fenster, wurde mit ">1" gar
-                // kein Task mehr erstellt — die Ansage fiel lautlos aus, statt verspätet
-                // nachzuholen. Bis zu 10s "zu spät" jetzt noch zulassen (deckt die ~2s-
-                // Refresh-Lücke komfortabel ab) und sofort statt gar nicht auslösen; nur
-                // wirklich alte Zeitpunkte weiter überspringen.
-                guard delay > -10 && delay < 5400 else { continue } // nur bis 90 min im Voraus
-                let clampedDelay = max(delay, 0)
-
-                let task = Task { [weak self] in
-                    guard !Task.isCancelled else { return }  // sofort prüfen (vor Sleep)
-                    try? await Task.sleep(for: .seconds(clampedDelay))
-                    guard !Task.isCancelled, let self else { return }
-
-                    let voiceEnabled = UserDefaults.standard.bool(forKey: "voiceEnabled")
-                    guard voiceEnabled && self.isDriving && self.isNearCrossing else { return }
-
-                    // Frisch neu bewerten statt den beim Planen erwarteten Status blind zu
-                    // übernehmen (Daten können sich seitdem geändert haben) — und nur
-                    // ansagen, wenn sich der Status seit der letzten Ansage wirklich
-                    // geändert hat (sonst doppelte Ansagen bei überlappenden Zügen).
-                    let currentStatus = self.worstUpcomingStatus
-                    guard currentStatus != self.lastAnnouncedStatus else { return }
-                    self.lastAnnouncedStatus = currentStatus
-
-                    let next = self.nextEvents.first { $0.minutesUntil > 0 }
-
-                    await MainActor.run {
-                        announcer.announce(
-                            status: currentStatus,
-                            nextEvent: next,
-                            crossingName: self.selectedCrossing.spokenCrossingName
-                        )
-                    }
-                }
-                voiceTasks.append(task)
+    /// Startet den dauerhaften Ansage-Monitor. Einmalig beim App-Start aufgerufen (siehe
+    /// Schrankenradar_OSHApp.swift), läuft für die gesamte App-Lebensdauer — bewusst NICHT an
+    /// refreshTask/pauseRefresh()/stopAutoRefresh() gekoppelt, damit Ansagen wie bisher auch
+    /// weiterlaufen, wenn das DB-Polling pausiert (siehe stopAutoRefresh()-Kommentar) oder der
+    /// Nutzer den Tab wechselt. `@MainActor`, damit der darin erzeugte Task dieselbe Isolation
+    /// erbt und evaluateVoiceAnnouncement() ohne zusätzlichen MainActor.run-Umweg aufrufen kann.
+    @MainActor
+    func startVoiceMonitor() {
+        guard voiceMonitorTask == nil else { return }   // idempotent, kein Doppel-Start
+        voiceMonitorTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                self.evaluateVoiceAnnouncement()
+                try? await Task.sleep(for: .seconds(1))
             }
         }
+    }
+
+    func stopVoiceMonitor() {
+        voiceMonitorTask?.cancel()
+        voiceMonitorTask = nil
+    }
+
+    /// Wertet jede Sekunde den aktuellen Status neu aus (derselbe worstStatus(at:), den auch
+    /// die UI verwendet — keine separaten, potenziell desynchronisierten Schwellenwerte mehr)
+    /// und sagt bei jeder Änderung an. Kontinuierliche Prüfung statt Einmal-Timer zu einem
+    /// festen Zeitpunkt: verpasst ein Tick die Gating-Bedingungen (z.B. GPS bestätigt
+    /// isNearCrossing erst kurz danach), greift einfach der nächste Tick eine Sekunde später —
+    /// eine Ansage kann dadurch nicht mehr lautlos und endgültig ausfallen.
+    @MainActor
+    private func evaluateVoiceAnnouncement() {
+        guard let announcer = voiceAnnouncer else { return }
+        let voiceEnabled = UserDefaults.standard.bool(forKey: "voiceEnabled")
+        let crossing = selectedCrossing
+        // crossing.voiceEnabled: Pro-Übergang-Stummschaltung aus den Einstellungen — vorher an
+        // dieser Stelle nie geprüft, wodurch der Schalter wirkungslos war.
+        guard voiceEnabled, crossing.voiceEnabled, isDriving, isNearCrossing else { return }
+        guard !nextEvents.isEmpty else { return }   // noch keine Daten geladen
+
+        let currentStatus = worstStatus(at: Date())
+        guard lastAnnounced?.crossingId != crossing.id || lastAnnounced?.status != currentStatus else { return }
+        lastAnnounced = (crossingId: crossing.id, status: currentStatus)
+
+        let next = nextEvents.first { $0.minutesUntil > 0 }
+        announcer.announce(status: currentStatus, nextEvent: next, crossingName: crossing.spokenCrossingName)
     }
 
     /// reloadAllTimelines() läuft über System-Scene-Code und kann den Main Thread für
@@ -1180,10 +1223,5 @@ final class CrossingViewModel {
         if let data = try? JSONEncoder().encode(payload) {
             suite.set(data, forKey: SharedWidgetPayload.userDefaultsKey)
         }
-    }
-
-    private func cancelVoiceTasks() {
-        voiceTasks.forEach { $0.cancel() }
-        voiceTasks.removeAll()
     }
 }

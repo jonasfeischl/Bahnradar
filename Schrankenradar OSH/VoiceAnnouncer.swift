@@ -9,9 +9,26 @@ final class VoiceAnnouncer {
     /// Laufende Synthese der zuletzt angeforderten Ansage — wird bei einer neuen
     /// Ansage abgebrochen, damit nie eine überholte Ansage verspätet abgespielt wird.
     private var neuralSynthesisTask: Task<Void, Never>?
+    /// Token für den Interruption-Observer (siehe init) — hält ihn am Leben, analog zu den
+    /// Observer-Properties in CrossingViewModel (z.B. calibrationObserver).
+    private var audioInterruptionObserver: Any?
 
     init() {
         configureAudioSession()
+        // iOS reaktiviert die Audiosession nach einer Unterbrechung (Anruf, Siri,
+        // Bluetooth-/CarPlay-Wechsel — im Auto-Kontext keine Seltenheit) nicht von selbst.
+        // Ohne diesen Observer blieb die nächste Ansage danach lautlos, obwohl der Code sie
+        // ganz normal auslöst. NotificationCenter statt #selector, weil VoiceAnnouncer kein
+        // NSObject ist.
+        audioInterruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard
+                let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                AVAudioSession.InterruptionType(rawValue: typeValue) == .ended
+            else { return }
+            self?.configureAudioSession()
+        }
     }
 
     /// Wählt die natürlichste verfügbare deutsche Stimme statt der mitgelieferten
@@ -78,15 +95,26 @@ final class VoiceAnnouncer {
         speak(parts: parts)
     }
 
-    /// Einmaliger Hinweis, wenn Hintergrund-Tracking (Standort "Immer" erlaubt) beim
-    /// Wechsel in den Hintergrund tatsächlich aktiv übernimmt — sonst bemerkt man beim
-    /// Fahren ohne Blick aufs Display nicht, ob die App im Hintergrund noch mitläuft.
+    /// Bestätigung beim Verlassen der App (echter Hintergrund, nach Gnadenfrist bestätigt) —
+    /// IMMER, unabhängig vom Fahrstatus (Nutzerentscheidung), damit klar ist, dass
+    /// Hintergrund-Tracking (Standort "Immer" erlaubt) aktiv übernimmt. "Hintergrundmodus"
+    /// ist noch nicht im neuronalen Wortschatz (voice_vocab_thorsten.json) — fällt bis zur
+    /// nächsten Vokabular-Aktualisierung automatisch auf die iOS-Systemstimme zurück.
     func announceBackgroundActive() {
         synthesizer.stopSpeaking(at: .word)
         neuralPlayer?.stop()
         neuralSynthesisTask?.cancel()
         // Kurze Pause vor "aktiv" + lauter gesprochen (Ersatz für echte Betonung) —
         // Werte nach Hörtest mehrerer Varianten festgelegt.
+        speak(parts: ["Hintergrundmodus", "aktiv."], pauseBeforeIndices: [1], emphasizeIndices: [1])
+    }
+
+    /// Bestätigung beim Betreten/Zurückkehren in die App (Kaltstart oder echte Rückkehr aus
+    /// dem Hintergrund) — Gegenstück zu announceBackgroundActive().
+    func announceAppActive() {
+        synthesizer.stopSpeaking(at: .word)
+        neuralPlayer?.stop()
+        neuralSynthesisTask?.cancel()
         speak(parts: ["Dein Bahnradar ist jetzt", "aktiv."], pauseBeforeIndices: [1], emphasizeIndices: [1])
     }
 
