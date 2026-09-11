@@ -91,10 +91,18 @@ final class DebugLog {
         persist()
     }
 
+    /// JSON-Encoding + Schreiben liefen bisher synchron auf dem aufrufenden Thread (meist Main
+    /// Thread, da add() von überall im UI-Code aufgerufen wird) — bei vollem 3000er-Puffer per
+    /// Instruments als ~350-450ms Main-Thread-Hang nachgewiesen. Snapshot (billige Array-Kopie)
+    /// bleibt synchron, Encode+Write laufen jetzt auf einem Hintergrund-Task.
     private func persist() {
         lastPersistAt = Date()
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        try? data.write(to: Self.persistenceURL, options: .atomic)
+        let snapshot = entries
+        let url = Self.persistenceURL
+        Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
     }
 
     private func loadFromDisk() {

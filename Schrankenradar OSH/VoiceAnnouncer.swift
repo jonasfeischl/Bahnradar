@@ -1,25 +1,44 @@
 import AVFoundation
 
-final class VoiceAnnouncer {
+final class VoiceAnnouncer: NSObject {
     private let synthesizer = AVSpeechSynthesizer()
     private let neuralEngine = NeuralVoiceEngine()
     /// Hält die neuronale Audiowiedergabe am Leben, solange sie läuft — ohne
     /// diese Referenz würde AVAudioPlayer sofort wieder freigegeben.
     private var neuralPlayer: AVAudioPlayer?
-    /// Laufende Synthese der zuletzt angeforderten Ansage — wird bei einer neuen
-    /// Ansage abgebrochen, damit nie eine überholte Ansage verspätet abgespielt wird.
-    private var neuralSynthesisTask: Task<Void, Never>?
     /// Token für den Interruption-Observer (siehe init) — hält ihn am Leben, analog zu den
     /// Observer-Properties in CrossingViewModel (z.B. calibrationObserver).
     private var audioInterruptionObserver: Any?
 
-    init() {
+    /// True während eine Ansage hörbar läuft (neuronal ODER Systemstimme). Verhindert, dass
+    /// mehrere fast gleichzeitig ausgelöste Ansagen (z.B. "Hintergrundmodus aktiv" beim
+    /// Verlassen, dann "Live-Status verfügbar", dann eine Status-Ansage — alle im selben
+    /// 1s-Tick scharf geschaltet) sich gegenseitig abschneiden, statt der Reihe nach zu spielen.
+    private var isSpeaking = false
+
+    private struct QueuedSpeech {
+        let parts: [String]
+        let pauseBeforeIndices: Set<Int>
+        let emphasizeIndices: Set<Int>
+        /// true nur für Status-Ansagen: eine neue ersetzt eine noch wartende alte (der Status
+        /// hat sich ja schon wieder geändert, die alte wäre beim Abspielen überholt). Die vier
+        /// einmaligen Bestätigungen (App aktiv/Hintergrund/Näherung/Live-Status) sind NIE
+        /// ersetzbar — die dürfen nie verloren gehen, nur der Reihe nach angehängt werden.
+        let replaceable: Bool
+    }
+    /// FIFO-Warteschlange statt Einzel-Slot — sonst könnte z.B. eine wartende "Live-Status
+    /// verfügbar"-Ansage von einer kurz danach ebenfalls wartenden Status-Ansage überschrieben
+    /// und dadurch verloren gehen, obwohl beide in derselben Sekunde fällig wurden.
+    private var pendingSpeak: [QueuedSpeech] = []
+
+    override init() {
+        super.init()
         configureAudioSession()
+        synthesizer.delegate = self
         // iOS reaktiviert die Audiosession nach einer Unterbrechung (Anruf, Siri,
         // Bluetooth-/CarPlay-Wechsel — im Auto-Kontext keine Seltenheit) nicht von selbst.
         // Ohne diesen Observer blieb die nächste Ansage danach lautlos, obwohl der Code sie
-        // ganz normal auslöst. NotificationCenter statt #selector, weil VoiceAnnouncer kein
-        // NSObject ist.
+        // ganz normal auslöst.
         audioInterruptionObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
         ) { [weak self] notification in
@@ -84,44 +103,65 @@ final class VoiceAnnouncer {
     }
 
     func announce(status: CrossingStatus, nextEvent: CrossingEvent?, crossingName: String = "") {
-        synthesizer.stopSpeaking(at: .word)
-        neuralPlayer?.stop()
-        // Eine noch laufende, jetzt überholte Synthese abbrechen — sonst könnte kurz
-        // danach noch die ALTE Ansage abgespielt werden, nachdem schon eine neuere
-        // angefordert wurde.
-        neuralSynthesisTask?.cancel()
-
         let parts = buildText(status: status, nextEvent: nextEvent, crossingName: crossingName)
-        speak(parts: parts)
+        speak(parts: parts, replaceable: true)
     }
 
     /// Bestätigung beim Verlassen der App (echter Hintergrund, nach Gnadenfrist bestätigt) —
     /// IMMER, unabhängig vom Fahrstatus (Nutzerentscheidung), damit klar ist, dass
-    /// Hintergrund-Tracking (Standort "Immer" erlaubt) aktiv übernimmt. "Hintergrundmodus"
-    /// ist noch nicht im neuronalen Wortschatz (voice_vocab_thorsten.json) — fällt bis zur
-    /// nächsten Vokabular-Aktualisierung automatisch auf die iOS-Systemstimme zurück.
+    /// Hintergrund-Tracking (Standort "Immer" erlaubt) aktiv übernimmt.
     func announceBackgroundActive() {
-        synthesizer.stopSpeaking(at: .word)
-        neuralPlayer?.stop()
-        neuralSynthesisTask?.cancel()
-        // Kurze Pause vor "aktiv" + lauter gesprochen (Ersatz für echte Betonung) —
-        // Werte nach Hörtest mehrerer Varianten festgelegt.
-        speak(parts: ["Hintergrundmodus", "aktiv."], pauseBeforeIndices: [1], emphasizeIndices: [1])
+        speak(parts: ["Die App läuft im Hintergrund."])
     }
 
-    /// Bestätigung beim Betreten/Zurückkehren in die App (Kaltstart oder echte Rückkehr aus
-    /// dem Hintergrund) — Gegenstück zu announceBackgroundActive().
+    /// Einmalige Bestätigung beim Start einer Fahrt (isDriving false→true, siehe
+    /// Schrankenradar_OSHApp.swift) — Gegenstück zu announceBackgroundActive().
     func announceAppActive() {
-        synthesizer.stopSpeaking(at: .word)
-        neuralPlayer?.stop()
-        neuralSynthesisTask?.cancel()
         speak(parts: ["Dein Bahnradar ist jetzt", "aktiv."], pauseBeforeIndices: [1], emphasizeIndices: [1])
+    }
+
+    /// Einmalige Bestätigung beim Eintritt in den Ansage-Radius eines Übergangs (isNearCrossing
+    /// false→true, während gefahren wird) — siehe CrossingViewModel.evaluateLifecycleAnnouncements().
+    func announceApproachingCrossing() {
+        speak(parts: ["Du näherst dich einem überwachten Bahnübergang."])
+    }
+
+    /// Einmalige Bestätigung, sobald für den aktuellen Übergang ein Zug mit echten GPS-Live-
+    /// Daten vorliegt (CrossingEvent.isLiveData) statt nur Fahrplan-Schätzung.
+    func announceLiveStatusAvailable() {
+        speak(parts: ["Live-Status verfügbar."])
+    }
+
+    /// Wartet eine bereits laufende Ansage ab statt sie abzuschneiden — läuft gerade nichts,
+    /// startet sofort. Läuft schon etwas, wird der Request angehängt (siehe pendingSpeak) und
+    /// finishedSpeaking() holt die Warteschlange der Reihe nach ab.
+    private func speak(
+        parts: [String], pauseBeforeIndices: Set<Int> = [], emphasizeIndices: Set<Int> = [], replaceable: Bool = false
+    ) {
+        guard !isSpeaking else {
+            let item = QueuedSpeech(
+                parts: parts, pauseBeforeIndices: pauseBeforeIndices, emphasizeIndices: emphasizeIndices,
+                replaceable: replaceable
+            )
+            if replaceable, let index = pendingSpeak.firstIndex(where: { $0.replaceable }) {
+                pendingSpeak[index] = item
+            } else {
+                pendingSpeak.append(item)
+            }
+            DebugLog.shared.add(
+                "Sprachansage: es läuft schon eine andere, in Warteschlange (\(pendingSpeak.count) wartend). " +
+                "Text: \(parts.joined(separator: " "))"
+            )
+            return
+        }
+        startSpeaking(parts: parts, pauseBeforeIndices: pauseBeforeIndices, emphasizeIndices: emphasizeIndices)
     }
 
     /// Gemeinsamer Syntheseweg: KI-Stimme versuchen, bei jedem Problem (Modell nicht
     /// geladen, Text nicht im vorberechneten Wortschatz, Synthese schlägt fehl) lautlos
     /// auf die iOS-Systemstimme zurückfallen statt die Ansage ausfallen zu lassen.
-    private func speak(parts: [String], pauseBeforeIndices: Set<Int> = [], emphasizeIndices: Set<Int> = []) {
+    private func startSpeaking(parts: [String], pauseBeforeIndices: Set<Int>, emphasizeIndices: Set<Int>) {
+        isSpeaking = true
         let text = parts.joined(separator: " ")
         DebugLog.shared.add("Sprachansage: versuche neuronale Stimme. Text: \(text)")
 
@@ -129,11 +169,10 @@ final class VoiceAnnouncer {
         // erwarten kein await) — die eigentliche Arbeit passiert in einem losgelösten
         // Task. neuralEngine ist ein actor, überlappende Aufrufe werden also ohnehin
         // automatisch serialisiert statt sich gegenseitig zu stören.
-        neuralSynthesisTask = Task {
+        Task {
             let wavData = await neuralEngine.synthesize(
                 parts: parts, pauseBeforeIndices: pauseBeforeIndices, emphasizeIndices: emphasizeIndices
             )
-            guard !Task.isCancelled else { return }
             if let wavData {
                 DebugLog.shared.add("Sprachansage: neuronale Stimme erfolgreich (\(wavData.count) Bytes WAV).")
                 await MainActor.run { self.playNeuralAudio(wavData) }
@@ -141,6 +180,16 @@ final class VoiceAnnouncer {
                 await MainActor.run { self.speakWithSystemVoice(text) }
             }
         }
+    }
+
+    /// Wird aufgerufen sobald die aktuelle Ansage fertig ist (neuronal oder Systemstimme,
+    /// über die Delegates unten) — holt eine zwischenzeitlich zurückgestellte Ansage nach,
+    /// falls eine wartet.
+    private func finishedSpeaking() {
+        isSpeaking = false
+        guard !pendingSpeak.isEmpty else { return }
+        let next = pendingSpeak.removeFirst()
+        startSpeaking(parts: next.parts, pauseBeforeIndices: next.pauseBeforeIndices, emphasizeIndices: next.emphasizeIndices)
     }
 
     private func speakWithSystemVoice(_ text: String) {
@@ -154,11 +203,16 @@ final class VoiceAnnouncer {
 
     private func playNeuralAudio(_ wavData: Data) {
         neuralPlayer = try? AVAudioPlayer(data: wavData)
+        neuralPlayer?.delegate = self
         // Ohne prepareToPlay() ist die Audio-Hardware beim ersten play() noch
         // nicht bereit — das schnitt hörbar den Anfang der Ansage ab (z.B.
         // "Zug" komplett verschluckt) und klang wie Stottern.
         neuralPlayer?.prepareToPlay()
-        neuralPlayer?.play()
+        if neuralPlayer?.play() != true {
+            // Player konnte nicht erzeugt/gestartet werden — ohne das bliebe isSpeaking
+            // hängen und jede künftige Ansage würde nur noch zurückgestellt, nie gesprochen.
+            finishedSpeaking()
+        }
     }
 
     /// Einheitlicher Aufbau für alle vier Status: "[Name] [Status]. Nächster Zug [Zeit]."
@@ -193,5 +247,25 @@ final class VoiceAnnouncer {
         }
 
         return parts
+    }
+}
+
+extension VoiceAnnouncer: AVAudioPlayerDelegate {
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in self.finishedSpeaking() }
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        Task { @MainActor in self.finishedSpeaking() }
+    }
+}
+
+extension VoiceAnnouncer: AVSpeechSynthesizerDelegate {
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor in self.finishedSpeaking() }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor in self.finishedSpeaking() }
     }
 }

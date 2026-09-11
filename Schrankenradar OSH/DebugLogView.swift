@@ -74,9 +74,14 @@ struct DebugLogView: View {
         HStack(alignment: .top, spacing: 8) {
             Text(entry.date, format: .dateTime.hour().minute().second())
                 .foregroundStyle(.secondary)
+            // lineLimit: manche Zeilen (z.B. Geops-Stopsequence mit dutzenden Stationsnamen)
+            // sind sehr lang — volles CoreText-Layout jeder solchen Zeile beim Scrollen wurde
+            // per Instruments als Main-Thread-Hang nachgewiesen. Volltext bleibt über Kopieren/
+            // Teilen (log.exportText) weiterhin verfügbar, hier nur die Anzeige begrenzt.
             Text(entry.message)
                 .foregroundStyle(color(for: entry.level))
                 .textSelection(.enabled)
+                .lineLimit(4)
         }
         .listRowBackground(Color.clear)
     }

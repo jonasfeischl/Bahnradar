@@ -191,10 +191,17 @@ struct SettingsView: View {
                             )
                             .foregroundStyle(MetricKitMonitor.shared.isRunning ? .red : .accentColor)
                         }
+
+                        Toggle(isOn: Binding(
+                            get: { drivingDetector.debugForceDriving },
+                            set: { drivingDetector.debugForceDriving = $0 }
+                        )) {
+                            Label("Fahrt simulieren (Test)", systemImage: "car.fill")
+                        }
                     } header: {
                         Text("Admin")
                     } footer: {
-                        Text("Diagnose-Log protokolliert DB-Fahrplan-Abrufe, Geops-Live-GPS und die Berechnung der Durchfahrtszeit. Bei einem Problem: hier öffnen, „Kopieren“ tippen und den Text weitergeben.\n\nMetricKit beobachtet Hangs/Crashes im Hintergrund, auch unterwegs ohne Mac — nur solange aktiv, wie du es hier eingeschaltet lässt. Landet ebenfalls im Diagnose-Log.")
+                        Text("Diagnose-Log protokolliert DB-Fahrplan-Abrufe, Geops-Live-GPS und die Berechnung der Durchfahrtszeit. Bei einem Problem: hier öffnen, „Kopieren“ tippen und den Text weitergeben.\n\nMetricKit beobachtet Hangs/Crashes im Hintergrund, auch unterwegs ohne Mac — nur solange aktiv, wie du es hier eingeschaltet lässt. Landet ebenfalls im Diagnose-Log.\n\n„Fahrt simulieren“ erzwingt isDriving=true unabhängig von Bewegung&Fitness/GPS — zum Testen von „Bahnradar jetzt aktiv“ (beim Einschalten) und „Hintergrundmodus aktiv“ (beim Verlassen der App), ohne wirklich zu fahren.")
                     }
                 }
 

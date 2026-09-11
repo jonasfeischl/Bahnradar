@@ -149,9 +149,7 @@ struct ContentView: View {
                 backgroundGraceTask = nil
                 guard wasInBackground else { return }   // nur echter Hintergrund→Vordergrund
                 wasInBackground = false
-                // Gegenstück zu "Hintergrundmodus aktiv" beim Verlassen — immer, unabhängig
-                // vom Fahrstatus.
-                if voiceEnabled { voiceAnnouncer.announceAppActive() }
+                viewModel.isAppInBackground = false
                 // App aus Hintergrund: Geops reconnecten + alles neu starten
                 viewModel.startAutoRefresh()
                 drivingDetector.start()
@@ -172,6 +170,7 @@ struct ContentView: View {
                     try? await Task.sleep(for: .seconds(3))
                     guard !Task.isCancelled else { return }
                     wasInBackground = true
+                    viewModel.isAppInBackground = true
 
                     // Geops (WebSocket) hält im Hintergrund keine zuverlässige Verbindung —
                     // deshalb hier immer trennen, unabhängig von der Standortberechtigung.
@@ -191,9 +190,9 @@ struct ContentView: View {
                     // DB-Polling und Sensoren bewusst mitstoppen, kein Update mehr bis die App
                     // wieder geöffnet wird.
                     if locationMonitor.authorizationStatus == .authorizedAlways {
-                        // Hörbare Bestätigung bei JEDEM echten Verlassen der App, unabhängig
-                        // vom Fahrstatus (Nutzerentscheidung) — vorher nur bei erkannter Fahrt.
-                        if voiceEnabled {
+                        // Hörbare Bestätigung beim Verlassen der App, aber NUR während einer
+                        // Fahrt (Nutzerentscheidung) — kein Hinweis beim simplen Wegwischen daheim.
+                        if voiceEnabled && viewModel.isDriving {
                             voiceAnnouncer.announceBackgroundActive()
                         }
                     } else {

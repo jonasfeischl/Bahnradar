@@ -94,6 +94,14 @@ struct Schrankenradar_OSHApp: App {
                 .onChange(of: drivingDetector.isDriving) { _, driving in
                     if driving { locationMonitor.start() } else { locationMonitor.stop() }
                     viewModel.isDriving = driving
+                    // Einmalige Bestätigung beim Start jeder Fahrt (Flanke false→true, nicht
+                    // bei jedem App-Öffnen) — Gegenstück zu "Hintergrundmodus aktiv" beim
+                    // Verlassen der App.
+                    let voiceEnabled = UserDefaults.standard.bool(forKey: "voiceEnabled")
+                    DebugLog.shared.add("isDriving-Wechsel: \(driving), voiceEnabled: \(voiceEnabled) — announceAppActive \(driving && voiceEnabled ? "wird ausgelöst" : "wird NICHT ausgelöst")")
+                    if driving && voiceEnabled {
+                        voiceAnnouncer.announceAppActive()
+                    }
                 }
                 .onChange(of: locationMonitor.isNearCrossing) { _, near in
                     viewModel.isNearCrossing = near
@@ -166,12 +174,6 @@ struct Schrankenradar_OSHApp: App {
                         drivingDetector.start()
                     }
 
-                    // Kaltstart-Gegenstück zu announceBackgroundActive() — ContentView.onChange
-                    // (scenePhase == .active) deckt nur eine echte Rückkehr aus dem Hintergrund
-                    // ab (wasInBackground-Guard), nicht den allerersten Start.
-                    if UserDefaults.standard.bool(forKey: "voiceEnabled") {
-                        voiceAnnouncer.announceAppActive()
-                    }
                     appStartupSequenceComplete = true
                 }
                 .fullScreenCover(isPresented: $showOnboarding) {

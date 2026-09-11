@@ -196,6 +196,9 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
+    
+    
+    
     // MARK: - Alle bekannten Bahnübergänge
 
     static let all: [CrossingLocation] = [

@@ -6,6 +6,15 @@ import Foundation
 final class DrivingDetector {
     var isDriving = false
 
+    /// Nur für den Admin-Test-Schalter in den Einstellungen: erzwingt isDriving=true
+    /// unabhängig von den echten Sensoren, um Sprachansagen ohne echte Fahrt zu testen.
+    /// Ohne diesen Weg über recompute() würde eine direkt gesetzte isDriving spätestens beim
+    /// nächsten tick() (jede Sekunde) wieder auf false zurückfallen, sobald weder CoreMotion
+    /// noch GPS "fährt" melden.
+    var debugForceDriving = false {
+        didSet { recompute() }
+    }
+
     private let motionManager = CMMotionActivityManager()
     private var coreMotionAutomotive = false
     private var gpsDrivingUntil: Date?
@@ -70,6 +79,6 @@ final class DrivingDetector {
 
     private func recompute() {
         let gpsActive = gpsDrivingUntil.map { $0 > Date() } ?? false
-        isDriving = coreMotionAutomotive || gpsActive
+        isDriving = debugForceDriving || coreMotionAutomotive || gpsActive
     }
 }

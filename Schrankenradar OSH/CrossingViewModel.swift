@@ -27,6 +27,10 @@ final class CrossingViewModel {
     // Fahrt- und Standortstatus — werden von ContentView gesetzt
     var isDriving: Bool = false
     var isNearCrossing: Bool = false
+    /// True nur zwischen bestätigtem Hintergrund (nach der 3s-Gnadenfrist in ContentView) und
+    /// der Rückkehr in den Vordergrund — siehe ContentView.onChange(scenePhase). Status-Ansagen
+    /// sollen nur hier hörbar sein, nicht während man aktiv auf den Bildschirm schaut.
+    var isAppInBackground: Bool = false
     private weak var voiceAnnouncer: VoiceAnnouncer?
     /// Dauerhaft laufender 1s-Loop statt Pre-Scheduling (siehe startVoiceMonitor()).
     private var voiceMonitorTask: Task<Void, Never>?
@@ -35,6 +39,12 @@ final class CrossingViewModel {
     /// (z.B. automatisch während der Fahrt) immer eine frische Ansage zulässt, statt vom
     /// zuletzt angesagten Status des ALTEN Übergangs blockiert zu werden.
     private var lastAnnounced: (crossingId: String, status: CrossingStatus)?
+    /// Letzter (Übergang, isNearCrossing)-Zustand — löst "Du näherst dich..." bei jedem NEUEN
+    /// Eintritt in den Radius aus (auch nach Verlassen+Wiedereintritt oder Übergangswechsel),
+    /// nicht nur einmalig pro App-Lauf.
+    private var lastNearCrossingState: (crossingId: String, isNear: Bool)?
+    /// Wie lastNearCrossingState, aber für "Live-Status verfügbar" (CrossingEvent.isLiveData).
+    private var lastLiveStatusState: (crossingId: String, hasLive: Bool)?
     private var calibrationObserver: Any?
     private var autoOffsetObserver: Any?
     private var geopsChangeObserver: Any?
@@ -395,10 +405,13 @@ final class CrossingViewModel {
         cachedDBCrossingId = ""
         cachedRegionalEntries = []      // Regionalzüge des alten Übergangs verwerfen
         lastTrains = []                 // Züge des alten Übergangs verwerfen (sonst Fallback in rebuildEventsFromCache)
-        // Nicht zwingend nötig (lastAnnounced ist ohnehin über crossingId geschlüsselt), aber
-        // explizit als Sicherheitsnetz gegen eine Race mit evaluateVoiceAnnouncement() zwischen
-        // dem Leeren von nextEvents oben und dem fetchData() unten.
+        // Nicht zwingend nötig (alle drei sind ohnehin über crossingId geschlüsselt), aber
+        // explizit als Sicherheitsnetz gegen eine Race mit evaluateVoiceAnnouncement()/
+        // evaluateLifecycleAnnouncements() zwischen dem Leeren von nextEvents oben und dem
+        // fetchData() unten.
         lastAnnounced = nil
+        lastNearCrossingState = nil
+        lastLiveStatusState = nil
         restoreFromCache(crossingId: store.selectedId)
         Task { await fetchData() }
     }
@@ -1141,6 +1154,7 @@ final class CrossingViewModel {
         voiceMonitorTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
+                self.evaluateLifecycleAnnouncements()
                 self.evaluateVoiceAnnouncement()
                 try? await Task.sleep(for: .seconds(1))
             }
@@ -1164,8 +1178,10 @@ final class CrossingViewModel {
         let voiceEnabled = UserDefaults.standard.bool(forKey: "voiceEnabled")
         let crossing = selectedCrossing
         // crossing.voiceEnabled: Pro-Übergang-Stummschaltung aus den Einstellungen — vorher an
-        // dieser Stelle nie geprüft, wodurch der Schalter wirkungslos war.
-        guard voiceEnabled, crossing.voiceEnabled, isDriving, isNearCrossing else { return }
+        // dieser Stelle nie geprüft, wodurch der Schalter wirkungslos war. isAppInBackground:
+        // Status-Ansagen sollen nur hörbar sein, wenn man NICHT gerade auf den Bildschirm
+        // schaut (Nutzerentscheidung) — im Vordergrund sieht man den Status ja schon.
+        guard voiceEnabled, crossing.voiceEnabled, isDriving, isNearCrossing, isAppInBackground else { return }
         guard !nextEvents.isEmpty else { return }   // noch keine Daten geladen
 
         let currentStatus = worstStatus(at: Date())
@@ -1174,6 +1190,38 @@ final class CrossingViewModel {
 
         let next = nextEvents.first { $0.minutesUntil > 0 }
         announcer.announce(status: currentStatus, nextEvent: next, crossingName: crossing.spokenCrossingName)
+    }
+
+    /// Zwei einmalige Meilenstein-Ansagen beim Anfahren eines Übergangs. Die Näherungs-Ansage
+    /// ist bewusst NICHT ans isAppInBackground-Gate der Status-Ansagen gekoppelt (wie
+    /// announceAppActive(): Bestätigungs-Charakter, soll auch im Vordergrund hörbar sein) — die
+    /// Live-Status-Ansage dagegen schon (Nutzerentscheidung), siehe Guard unten. Dadurch ergibt
+    /// sich beim Verlassen der App während einer Fahrt automatisch die gewünschte Reihenfolge:
+    /// "Hintergrundmodus aktiv" (löst isAppInBackground aus) → "Live-Status verfügbar" (wird
+    /// dadurch erst jetzt wahr) → Status-Ansage — alle drei werden von VoiceAnnouncers
+    /// Warteschlange der Reihe nach abgespielt statt sich zu überlagern.
+    @MainActor
+    private func evaluateLifecycleAnnouncements() {
+        guard let announcer = voiceAnnouncer else { return }
+        guard UserDefaults.standard.bool(forKey: "voiceEnabled"), isDriving else { return }
+        let crossing = selectedCrossing
+        guard crossing.voiceEnabled else { return }
+
+        if lastNearCrossingState?.crossingId != crossing.id || lastNearCrossingState?.isNear != isNearCrossing {
+            if isNearCrossing {
+                announcer.announceApproachingCrossing()
+            }
+            lastNearCrossingState = (crossingId: crossing.id, isNear: isNearCrossing)
+        }
+
+        guard isNearCrossing, isAppInBackground else { return }
+        let hasLive = nextEvents.contains { $0.isLiveData && $0.minutesUntil > 0 }
+        if lastLiveStatusState?.crossingId != crossing.id || lastLiveStatusState?.hasLive != hasLive {
+            if hasLive {
+                announcer.announceLiveStatusAvailable()
+            }
+            lastLiveStatusState = (crossingId: crossing.id, hasLive: hasLive)
+        }
     }
 
     /// reloadAllTimelines() läuft über System-Scene-Code und kann den Main Thread für
