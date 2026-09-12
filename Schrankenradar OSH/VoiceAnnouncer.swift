@@ -43,10 +43,26 @@ final class VoiceAnnouncer: NSObject {
             forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
         ) { [weak self] notification in
             guard
+                let self,
                 let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                AVAudioSession.InterruptionType(rawValue: typeValue) == .ended
+                let type = AVAudioSession.InterruptionType(rawValue: typeValue)
             else { return }
-            self?.configureAudioSession()
+            switch type {
+            case .began:
+                // Die Session wird jetzt zwangsweise gestoppt (Anruf, Siri, ...) — die laufende
+                // Wiedergabe endet dabei OHNE dass audioPlayerDidFinishPlaying/speechSynthesizer
+                // (didFinish:) je aufgerufen wird. isSpeaking bliebe sonst für immer auf true
+                // hängen und jede künftige Ansage würde nur noch in der Warteschlange
+                // verschwinden statt je zu spielen (beobachtet: nach kurzer Siri-Aktivierung kam
+                // gar nichts mehr, auch nicht "Live-Status verfügbar" später).
+                self.isSpeaking = false
+            case .ended:
+                self.configureAudioSession()
+                // Eine während der Unterbrechung angefragte, wartende Ansage jetzt nachholen.
+                self.finishedSpeaking()
+            @unknown default:
+                break
+            }
         }
     }
 

@@ -145,11 +145,19 @@ final class LocationMonitor: NSObject, CLLocationManagerDelegate {
 
         if let nearest = nearest {
             let distance = location.distance(from: CLLocation(latitude: nearest.latitude, longitude: nearest.longitude))
-            let wasNear = isNearCrossing
             isNearCrossing = distance <= nearest.radiusMeters
 
-            // Automatisch wechseln wenn gerade in den Radius eingetreten
-            if !wasNear && isNearCrossing {
+            // Bei JEDEM Innerhalb-des-Radius-Update aufrufen, nicht nur beim Ersteintritt
+            // (vorher: "if !wasNear && isNearCrossing") — sonst blieb die Auswahl auf dem alten
+            // Übergang stehen, wenn (a) sich bei überlappenden Radien der nächste Übergang
+            // wechselt OHNE dass isNearCrossing zwischenzeitlich false wird (z.B. die beiden
+            // nah beieinanderliegenden Feldmochinger Schranken), oder (b) der Nutzer manuell auf
+            // einen anderen Übergang umgeschaltet hat, obwohl er weiter physisch beim alten ist —
+            // isNearCrossing bezieht sich dann fälschlich auf den manuell gewählten statt den
+            // tatsächlich nahen Übergang, wodurch z.B. eine Status-Ansage für einen Übergang
+            // kam, in dessen Radius man gar nicht war. onAutoSwitch() selbst ist bereits
+            // idempotent (Schrankenradar_OSHApp.swift: no-op wenn schon ausgewählt).
+            if isNearCrossing {
                 onAutoSwitch?(nearest)
             }
         } else {

@@ -401,6 +401,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Schrankenradar-OSH-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Bahnradar;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.travel";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Der Standort wird während der Fahrt geprüft, auch bei gesperrtem Bildschirm, damit Sprachwarnungen vor der Bahnschranke zuverlässig ertönen.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Der Standort wird nur während der Fahrt geprüft um festzustellen ob du in der Nähe des Bahnübergangs bist.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Die App erkennt automatisch ob du fährst und aktiviert dann Sprachansagen.";
@@ -441,6 +442,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Schrankenradar-OSH-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Bahnradar;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.travel";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Der Standort wird während der Fahrt geprüft, auch bei gesperrtem Bildschirm, damit Sprachwarnungen vor der Bahnschranke zuverlässig ertönen.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Der Standort wird nur während der Fahrt geprüft um festzustellen ob du in der Nähe des Bahnübergangs bist.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Die App erkennt automatisch ob du fährst und aktiviert dann Sprachansagen.";
