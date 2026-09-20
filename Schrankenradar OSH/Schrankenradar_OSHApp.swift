@@ -15,6 +15,10 @@ struct Schrankenradar_OSHApp: App {
     @State private var locationMonitor  = LocationMonitor()
     @State private var voiceAnnouncer   = VoiceAnnouncer()
     @State private var drivingDetector  = DrivingDetector()
+    /// App-Ebene statt View-lokal, aus demselben Grund wie die anderen State-Objekte hier: der
+    /// 30s-Live-Monitor (siehe RouteViewModel.startTrip) darf beim Tab-Wechsel während einer
+    /// aktiven Fahrt nicht pausieren (vgl. Commit "Fahrterkennung tab-unabhängig machen").
+    @State private var routeViewModel   = RouteViewModel()
 
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var showOnboarding = false
@@ -65,6 +69,11 @@ struct Schrankenradar_OSHApp: App {
                     SchrankenModeView(viewModel: viewModel, locationMonitor: locationMonitor)
                         .tabItem {
                             Label("Schranke", systemImage: "record.circle")
+                        }
+
+                    RouteView(routeViewModel: routeViewModel, locationMonitor: locationMonitor)
+                        .tabItem {
+                            Label("Fahrt", systemImage: "signpost.right.and.left.fill")
                         }
 
                     SettingsView(viewModel: viewModel, locationMonitor: locationMonitor, voiceAnnouncer: voiceAnnouncer,
@@ -132,6 +141,7 @@ struct Schrankenradar_OSHApp: App {
                     viewModel.setup(voiceAnnouncer: voiceAnnouncer)
                     viewModel.startAutoRefresh()
                     viewModel.startVoiceMonitor()
+                    routeViewModel.attach(crossingViewModel: viewModel, voiceAnnouncer: voiceAnnouncer)
 
                     if !hasCompletedOnboarding {
                         // Erster Start: Willkommen + Berechtigungs-Erklärung zeigen.

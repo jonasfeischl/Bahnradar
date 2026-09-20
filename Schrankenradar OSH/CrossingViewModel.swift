@@ -90,7 +90,8 @@ final class CrossingViewModel {
         else { return false }
 
         lastTrains = cache.trains
-        let events = stabilize(buildEvents(from: cache.trains))
+        let crossing = store.crossings.first(where: { $0.id == crossingId }) ?? selectedCrossing
+        let events = stabilize(buildEvents(from: cache.trains, for: crossing, regionalEntries: cachedRegionalEntries))
         guard !events.isEmpty else { return false }
         nextEvents = events
         lastUpdated = cache.cachedAt
@@ -483,7 +484,7 @@ final class CrossingViewModel {
             // Kein gültiger DB-Cache (z.B. offline) → wenigstens Zeiten neu berechnen
             guard !lastTrains.isEmpty else { return }
             lastRebuildAt = Date()
-            nextEvents = stabilize(buildEvents(from: lastTrains))
+            nextEvents = stabilize(buildEvents(from: lastTrains, for: selectedCrossing, regionalEntries: cachedRegionalEntries))
             saveSelectedCrossingForWidget()
             reloadWidgetTimelinesThrottled()
             return
@@ -492,7 +493,7 @@ final class CrossingViewModel {
         let trains = service.mergeWithCurrentGeops(dbEntries: cachedDBEntries,
                                                    crossing: selectedCrossing)
         lastTrains = trains
-        nextEvents = stabilize(buildEvents(from: trains))
+        nextEvents = stabilize(buildEvents(from: trains, for: selectedCrossing, regionalEntries: cachedRegionalEntries))
 #if DEBUG
         print("[Rebuild] re-merge: \(cachedDBEntries.count) DB + Geops → \(trains.count) Züge, \(nextEvents.count) Events")
 #endif
@@ -666,12 +667,18 @@ final class CrossingViewModel {
         }
     }
 
-    /// FeedbackLearner für den aktuell gewählten Übergang
-    var feedback: FeedbackLearner {
-        let id = store.selectedId
-        if let existing = learners[id] { return existing }
-        let new = FeedbackLearner(crossingId: id)
-        learners[id] = new
+    /// FeedbackLearner für den aktuell gewählten Übergang — für UI-Code (Radar-/Schranken-Tab),
+    /// der sich immer auf den gerade angezeigten Übergang bezieht.
+    var feedback: FeedbackLearner { feedbackLearner(for: store.selectedId) }
+
+    /// FeedbackLearner für einen BELIEBIGEN Übergang. `buildEvents(for:)` MUSS das hier nutzen,
+    /// nicht `feedback` — sonst würden Fahrt-Tab-Vorhersagen für einen anderen als den gerade
+    /// ausgewählten Übergang fälschlich mit dessen gelernten Korrekturwerten (Öffnungsverzug,
+    /// Closing-Offset) statt den eigenen berechnet (gefunden bei Code-Review des Fahrt-Tabs).
+    private func feedbackLearner(for crossingId: String) -> FeedbackLearner {
+        if let existing = learners[crossingId] { return existing }
+        let new = FeedbackLearner(crossingId: crossingId)
+        learners[crossingId] = new
         return new
     }
     private let service = TrainAPIService()
@@ -781,7 +788,7 @@ final class CrossingViewModel {
             lastTrains = trains
             lastRebuildAt = Date()
             cacheSchedule(trains, crossingId: crossing.id)
-            nextEvents = stabilize(buildEvents(from: trains))
+            nextEvents = stabilize(buildEvents(from: trains, for: selectedCrossing, regionalEntries: cachedRegionalEntries))
             lastUpdated = Date()
             // Daten für Siri-Intents + Widget speichern
             let id = crossing.id
@@ -808,6 +815,20 @@ final class CrossingViewModel {
                 restoreFromCache(crossingId: selectedCrossing.id)
             }
         }
+    }
+
+    /// Wie fetchData(), aber für einen BELIEBIGEN (nicht zwingend ausgewählten) Übergang und
+    /// ohne jeden Seiteneffekt auf geteilten State (nextEvents/cachedDBEntries/lastUpdated
+    /// bleiben unangetastet, Glättung wird übersprungen — applyStabilization: false). Für den
+    /// Fahrt-Tab: prüft, ob ein anderer Übergang auf einer berechneten Route liegt, ohne die
+    /// Live-Anzeige des gerade ausgewählten Übergangs zu stören. Best-effort statt throws,
+    /// analog anderen Stellen in TrainAPIService.
+    @MainActor
+    func fetchEvents(for crossing: CrossingLocation) async -> [CrossingEvent] {
+        guard let dbEntries = try? await service.fetchDBEntries(crossing: crossing) else { return [] }
+        let regionalEntries = (try? await service.fetchRegionalDBEntries(crossing: crossing)) ?? []
+        let trains = service.mergeWithCurrentGeops(dbEntries: dbEntries, crossing: crossing)
+        return buildEvents(from: trains, for: crossing, regionalEntries: regionalEntries, applyStabilization: false)
     }
 
     // TEMPORÄRER HARDCODE (User-Anfrage 2026-07-19, nachjustiert 2026-07-20, 2026-07-25):
@@ -852,20 +873,26 @@ final class CrossingViewModel {
             communityFreisingCount: community?.freisingCount ?? 0,
             at:                     at
         )
-        var offset = feedback.totalClosingOffset(base: base, toMunich: toMunich)
+        var offset = feedbackLearner(for: crossing.id).totalClosingOffset(base: base, toMunich: toMunich)
         if crossing.id == "osh_dachauer" {
             offset += toMunich ? dachauerMunichHardcode : dachauerFreisingHardcode
         }
         return offset
     }
 
-    private func buildEvents(from trains: [TrainEntry]) -> [CrossingEvent] {
+    private func buildEvents(
+        from trains: [TrainEntry],
+        for crossing: CrossingLocation,
+        regionalEntries: [TrainEntry],
+        applyStabilization: Bool = true
+    ) -> [CrossingEvent] {
         let now = Date()
-        var events: [CrossingEvent] = stabilizeDelays(trains)
+        let stabilizedTrains = applyStabilization ? stabilizeDelays(trains) : trains
+        var events: [CrossingEvent] = stabilizedTrains
             .filter { !$0.isCancelled }
             .compactMap { train -> CrossingEvent? in
                 let toMunich = train.direction == .toMunich
-                let offset = finalOffset(for: selectedCrossing, toMunich: toMunich, at: now)
+                let offset = finalOffset(for: crossing, toMunich: toMunich, at: now)
 
                 // Durchfahrtszeit: DB-Abfahrt (inkl. Verspätung, bevorzugt aus MVG statt DBs
                 // eigener Realtime-Changes-API — siehe TrainAPIService-Überlagerung) + gelernter
@@ -883,9 +910,11 @@ final class CrossingViewModel {
                 let rawCrossingTime = train.actualTime.addingTimeInterval(offset)
                 var liveEstimate: GeopsRealtimeService.LiveCrossingEstimate?
                 if let tripId = train.geopsMatchedTripId {
-                    liveEstimate = GeopsRealtimeService.shared.liveCrossingEstimate(tripId: tripId, crossing: selectedCrossing)
+                    liveEstimate = GeopsRealtimeService.shared.liveCrossingEstimate(tripId: tripId, crossing: crossing)
                 }
-                let crossingTime = smoothedTime(id: train.id, raw: rawCrossingTime, isLive: false)
+                let crossingTime = applyStabilization
+                    ? smoothedTime(id: train.id, raw: rawCrossingTime, isLive: false)
+                    : rawCrossingTime
 
                 // Live-GPS bestätigt: rein informatives Badge, ändert nie die angezeigte Zeit.
                 let isLive = train.geopsMatchedTripId.map {
@@ -895,7 +924,7 @@ final class CrossingViewModel {
                 logCalcIfNeeded(train: train, dbTime: train.actualTime, offset: offset,
                                 liveEstimate: liveEstimate, finalTime: crossingTime)
 
-                let openingDelay = feedback.totalOpeningDelay
+                let openingDelay = feedbackLearner(for: crossing.id).totalOpeningDelay
                 let keepWindow = openingDelay + 30
                 guard crossingTime.timeIntervalSinceNow > -keepWindow else { return nil }
 
@@ -945,9 +974,9 @@ final class CrossingViewModel {
         // Güterzüge / Nicht-S-Bahn (RB, RE, …) via Geops-Echtzeit-GPS — werden wie normale
         // Züge behandelt. Mehrere gleichzeitig anfahrende Nicht-S-Bahn-Züge am selben Übergang
         // werden jetzt alle gezeigt (freightApproaches ist pro tripId geschlüsselt, siehe dort).
-        let openingDelay = feedback.totalOpeningDelay
+        let openingDelay = feedbackLearner(for: crossing.id).totalOpeningDelay
         let freightApproaches = GeopsRealtimeService.shared.freightApproaches.values
-            .filter { $0.crossingId == selectedCrossing.id }
+            .filter { $0.crossingId == crossing.id }
         for freight in freightApproaches {
             guard freight.crossingTime.timeIntervalSinceNow > -(openingDelay + 30),
                   // Nicht doppelt: kein S-Bahn-Event innerhalb 90s mit gleicher Richtung
@@ -982,10 +1011,10 @@ final class CrossingViewModel {
         // strukturell nie RE/RB führt (reine S-Bahn-Station, siehe Kommentar dort). Gleiche
         // Struktur wie der Güterzug-Block oben, aber DB-Fahrplan-basiert (cachedRegionalEntries)
         // statt Geops-GPS-basiert — daher isLiveData: false (keine Live-Bestätigung).
-        for entry in cachedRegionalEntries where !entry.isCancelled {
+        for entry in regionalEntries where !entry.isCancelled {
             let toMunichRegional = entry.direction == .toMunich
-            let regionalOffset = toMunichRegional ? selectedCrossing.regionalOffsetToMunich
-                                                   : selectedCrossing.regionalOffsetToFreising
+            let regionalOffset = toMunichRegional ? crossing.regionalOffsetToMunich
+                                                   : crossing.regionalOffsetToFreising
             let crossingTime = entry.actualTime.addingTimeInterval(regionalOffset)
             guard crossingTime.timeIntervalSinceNow > -(openingDelay + 30),
                   // Nicht doppelt: weder mit einem DB-/S-Bahn-Event noch mit einer per GPS
@@ -1018,14 +1047,20 @@ final class CrossingViewModel {
 
         // Geglättete Zeiten/Verspätungs-Status für Züge löschen, die nicht mehr in der
         // aktuellen Liste sind (sonst wachsen die Dictionaries unbegrenzt über den ganzen Tag).
-        let activeIds = Set(trains.map { $0.id })
-        smoothedCrossingTime   = smoothedCrossingTime.filter   { activeIds.contains($0.key) }
-        acceptedDelayMinutes   = acceptedDelayMinutes.filter   { activeIds.contains($0.key) }
-        pendingDelayReduction  = pendingDelayReduction.filter  { activeIds.contains($0.key) }
-        pendingDelayIncrease   = pendingDelayIncrease.filter   { activeIds.contains($0.key) }
-        liveLockedTrains       = liveLockedTrains.filter       { activeIds.contains($0) }
-        lastLiveAt             = lastLiveAt.filter             { activeIds.contains($0.key) }
-        lastCalcLog            = lastCalcLog.filter            { activeIds.contains($0.key) }
+        // Nur beim stabilisierten (ausgewählten) Übergang: `trains` gehört hier zu `crossing`,
+        // nicht zwingend zum aktuell ausgewählten Übergang — ein Aufruf für einen ANDEREN
+        // Übergang (siehe fetchEvents(for:)) würde sonst die Glättungs-Dictionaries des
+        // ausgewählten Übergangs anhand einer fremden trains-Liste fälschlich leerräumen.
+        if applyStabilization {
+            let activeIds = Set(trains.map { $0.id })
+            smoothedCrossingTime   = smoothedCrossingTime.filter   { activeIds.contains($0.key) }
+            acceptedDelayMinutes   = acceptedDelayMinutes.filter   { activeIds.contains($0.key) }
+            pendingDelayReduction  = pendingDelayReduction.filter  { activeIds.contains($0.key) }
+            pendingDelayIncrease   = pendingDelayIncrease.filter   { activeIds.contains($0.key) }
+            liveLockedTrains       = liveLockedTrains.filter       { activeIds.contains($0) }
+            lastLiveAt             = lastLiveAt.filter             { activeIds.contains($0.key) }
+            lastCalcLog            = lastCalcLog.filter            { activeIds.contains($0.key) }
+        }
 
         return events.sorted { $0.estimatedCrossingTime < $1.estimatedCrossingTime }
     }

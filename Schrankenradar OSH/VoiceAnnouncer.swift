@@ -148,6 +148,18 @@ final class VoiceAnnouncer: NSObject {
         speak(parts: ["Live-Status verfügbar."])
     }
 
+    /// Ansage bei signifikanter Änderung der vorhergesagten Zug-Durchfahrtszeit während einer
+    /// laufenden Fahrt im "Fahrt"-Tab (RouteViewModel-Live-Monitoring, Schwelle 2 Minuten).
+    /// NICHT replaceable: pendingSpeak hat nur einen einzigen "replaceable"-Slot, den sich sonst
+    /// diese Ansage mit den periodischen Status-Ansagen (announce(status:...)) teilen würde —
+    /// zwei verschiedene Ansage-Arten im selben Slot können sich sonst gegenseitig aus der
+    /// Warteschlange verdrängen (Code-Review-Fund). Tritt selten auf (nur bei echter ≥2-Minuten-
+    /// Verschiebung, kein 1s-Takt wie die Status-Ansagen), daher unproblematisch als "nie
+    /// ersetzbar, nur angehängt" wie die vier einmaligen Bestätigungen oben.
+    func announceTrainTimeChanged() {
+        speak(parts: ["Achtung, die Zugankunft hat sich verändert."])
+    }
+
     /// Wartet eine bereits laufende Ansage ab statt sie abzuschneiden — läuft gerade nichts,
     /// startet sofort. Läuft schon etwas, wird der Request angehängt (siehe pendingSpeak) und
     /// finishedSpeaking() holt die Warteschlange der Reihe nach ab.
