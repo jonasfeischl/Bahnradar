@@ -156,6 +156,7 @@ final class FeedbackLearner {
     // MARK: Feedback
 
     func submitCorrect() {
+        RankTracker.shared.recordMeldung()
         addHistory(.correct)
         showMessage("Danke! Vorhersage war korrekt. 👍")
     }
@@ -164,6 +165,7 @@ final class FeedbackLearner {
         let delta = stepSeconds
         closingOffsetAdjustment = (closingOffsetAdjustment + delta).clamped(to: minClosing...maxClosing)
         feedbackCount += 1
+        RankTracker.shared.recordMeldung()
         addHistory(.tooEarlyRed)
         persistLocal()
         addVoteToCloud(closing: delta, opening: nil)
@@ -174,6 +176,7 @@ final class FeedbackLearner {
         let delta = -stepSeconds
         closingOffsetAdjustment = (closingOffsetAdjustment + delta).clamped(to: minClosing...maxClosing)
         feedbackCount += 1
+        RankTracker.shared.recordMeldung()
         addHistory(.tooLateRed)
         persistLocal()
         addVoteToCloud(closing: delta, opening: nil)
@@ -184,6 +187,7 @@ final class FeedbackLearner {
         let delta = stepSeconds
         openingDelayAdjustment = (openingDelayAdjustment + delta).clamped(to: minOpening...maxOpening)
         feedbackCount += 1
+        RankTracker.shared.recordMeldung()
         addHistory(.tooEarlyGreen)
         persistLocal()
         addVoteToCloud(closing: nil, opening: delta)
@@ -194,6 +198,7 @@ final class FeedbackLearner {
         let delta = -stepSeconds
         openingDelayAdjustment = (openingDelayAdjustment + delta).clamped(to: minOpening...maxOpening)
         feedbackCount += 1
+        RankTracker.shared.recordMeldung()
         addHistory(.tooLateGreen)
         persistLocal()
         addVoteToCloud(closing: nil, opening: delta)
@@ -258,6 +263,7 @@ final class FeedbackLearner {
             closingOffsetToFreising = (closingOffsetToFreising + correction).clamped(to: minClosing...maxClosing)
         }
         feedbackCount += 1
+        RankTracker.shared.recordMeldung()
         persistLocal()
         // Richtungs-spezifisch in Cloud speichern
         Task {
@@ -277,6 +283,7 @@ final class FeedbackLearner {
         let correction = delta * 0.3
         openingDelayAdjustment = (openingDelayAdjustment + correction).clamped(to: minOpening...maxOpening)
         feedbackCount += 1
+        RankTracker.shared.recordMeldung()
         persistLocal()
         addVoteToCloud(closing: nil, opening: correction)
         return correction

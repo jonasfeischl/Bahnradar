@@ -28,6 +28,9 @@ struct Schrankenradar_OSHApp: App {
     /// Gleicher Key wie SettingsView/HelpView — schaltet den 4. Tab "Vergleich" frei (siehe
     /// dort für die Freischalt-Geste). Reagiert live, ohne App-Neustart.
     @AppStorage("adminUnlocked") private var adminUnlocked = false
+    /// Gleicher Key wie im Onboarding (OnboardingWaechterScreen) und SettingsView — steuert ob
+    /// der "Wächter"-Tab überhaupt erscheint. Reagiert live, ohne App-Neustart.
+    @AppStorage("waechterEnabled") private var waechterEnabled = true
 
     /// Splash mit drehendem Radar-Logo, kurz beim Kaltstart über allem sichtbar. Läuft
     /// über einen eigenen, unabhängigen Timer statt in der Sequenz unten — die kann durch
@@ -71,6 +74,13 @@ struct Schrankenradar_OSHApp: App {
                             Label("Schranke", systemImage: "record.circle")
                         }
 
+                    if waechterEnabled {
+                        WaechterView()
+                            .tabItem {
+                                Label("Wächter", systemImage: "shield.fill")
+                            }
+                    }
+
                     RouteView(routeViewModel: routeViewModel, locationMonitor: locationMonitor)
                         .tabItem {
                             Label("Fahrt", systemImage: "signpost.right.and.left.fill")
@@ -101,16 +111,20 @@ struct Schrankenradar_OSHApp: App {
                     drivingDetector.tick()
                 }
                 .onChange(of: drivingDetector.isDriving) { _, driving in
-                    if driving { locationMonitor.start() } else { locationMonitor.stop() }
-                    viewModel.isDriving = driving
-                    // Einmalige Bestätigung beim Start jeder Fahrt (Flanke false→true, nicht
-                    // bei jedem App-Öffnen) — Gegenstück zu "Hintergrundmodus aktiv" beim
-                    // Verlassen der App.
-                    let voiceEnabled = UserDefaults.standard.bool(forKey: "voiceEnabled")
-                    DebugLog.shared.add("isDriving-Wechsel: \(driving), voiceEnabled: \(voiceEnabled) — announceAppActive \(driving && voiceEnabled ? "wird ausgelöst" : "wird NICHT ausgelöst")")
-                    if driving && voiceEnabled {
-                        voiceAnnouncer.announceAppActive()
-                    }
+                    // Ohne diese Sperre konnte eine Fahrt-Erkennung WÄHREND des Onboardings
+                    // (z.B. während man im Auto sitzt und currently den Berechtigungs-Screen
+                    // liest) sofort locationMonitor.start() auslösen — und damit den Standort-
+                    // Systemdialog VOR dem "Okay"-Tap auf dem eigenen Erklär-Screen zeigen
+                    // (Nutzer-Report). appStartupSequenceComplete ist genau für solche Fälle
+                    // gedacht (siehe deren Dokumentation oben).
+                    guard appStartupSequenceComplete else { return }
+                    applyDrivingChange(driving)
+                }
+                .onChange(of: appStartupSequenceComplete) { _, complete in
+                    // Falls die Fahrt schon während des Onboardings begann, wurde die obige
+                    // Änderung oben ignoriert — hier den aktuellen Stand nachholen, sonst
+                    // bliebe GPS-Tracking/Sprachansage für die laufende Fahrt für immer aus.
+                    if complete { applyDrivingChange(drivingDetector.isDriving) }
                 }
                 .onChange(of: locationMonitor.isNearCrossing) { _, near in
                     viewModel.isNearCrossing = near
@@ -189,6 +203,17 @@ struct Schrankenradar_OSHApp: App {
                 .fullScreenCover(isPresented: $showOnboarding) {
                     OnboardingFlow(isPresented: $showOnboarding)
                 }
+                // App-weit statt tab-lokal, aus demselben Grund wie routeViewModel oben: eine
+                // Meldung (und damit ein möglicher Rang-Aufstieg) kann auf jedem Tab abgegeben
+                // werden, die Feier muss also von hier aus erreichbar sein. Eine echte Kollision
+                // mit dem Onboarding-Cover ist strukturell ausgeschlossen — der Onboarding-Task
+                // oben blockiert jede Meldung, bis er durchgelaufen ist.
+                .fullScreenCover(item: Binding(
+                    get: { RankTracker.shared.pendingRankUp },
+                    set: { if $0 == nil { RankTracker.shared.consumeRankUpEvent() } }
+                )) { rank in
+                    RankUpCelebrationView(rank: rank) { RankTracker.shared.consumeRankUpEvent() }
+                }
 
                 if showLaunchScreen {
                     LaunchScreenView()
@@ -201,6 +226,22 @@ struct Schrankenradar_OSHApp: App {
                     showLaunchScreen = false
                 }
             }
+        }
+    }
+
+    /// Reaktion auf eine erkannte Fahrt (Start oder Ende) — ausgelagert, da sowohl beim echten
+    /// isDriving-Wechsel als auch beim Nachholen nach Onboarding-Abschluss gebraucht (siehe
+    /// die beiden .onChange-Modifier oben).
+    private func applyDrivingChange(_ driving: Bool) {
+        if driving { locationMonitor.start() } else { locationMonitor.stop() }
+        viewModel.isDriving = driving
+        // Einmalige Bestätigung beim Start jeder Fahrt (Flanke false→true, nicht
+        // bei jedem App-Öffnen) — Gegenstück zu "Hintergrundmodus aktiv" beim
+        // Verlassen der App.
+        let voiceEnabled = UserDefaults.standard.bool(forKey: "voiceEnabled")
+        DebugLog.shared.add("isDriving-Wechsel: \(driving), voiceEnabled: \(voiceEnabled) — announceAppActive \(driving && voiceEnabled ? "wird ausgelöst" : "wird NICHT ausgelöst")")
+        if driving && voiceEnabled {
+            voiceAnnouncer.announceAppActive()
         }
     }
 }

@@ -13,10 +13,19 @@ struct RouteView: View {
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var pickingLocationFor: LocationPickerTarget?
 
+    @AppStorage("hasSeenFahrtIntro") private var hasSeenFahrtIntro = false
+    @State private var showIntro = false
+    @State private var showHistory = false
+    @State private var favoriteNameTarget: LocationPickerTarget?
+    @State private var newFavoriteName = ""
+    @State private var showWaypointField = false
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 22) {
+                    heroHeader
+                    travelModePicker
                     searchSection
                     calculateButton
                     if let error = routeViewModel.calculationError {
@@ -36,13 +45,25 @@ struct RouteView: View {
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("Fahrt")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showHistory = true
+                    } label: {
+                        Image(systemName: "clock.arrow.circlepath")
+                    }
+                }
+            }
         }
         .overlay(alignment: .top) {
             if let message = routeViewModel.currentBannerMessage {
                 bannerView(message)
             }
         }
-        .onAppear { locationMonitor.startForScreenPresence() }
+        .onAppear {
+            locationMonitor.startForScreenPresence()
+            if !hasSeenFahrtIntro { showIntro = true }
+        }
         .onDisappear { locationMonitor.stopForScreenPresence() }
         .sheet(item: $pickingLocationFor) { target in
             LocationPickerSheet(
@@ -52,20 +73,89 @@ struct RouteView: View {
                 switch target {
                 case .start:       routeViewModel.setStartFromMap(item)
                 case .destination: routeViewModel.setDestinationFromMap(item)
+                case .waypoint:    routeViewModel.setWaypointFromMap(item)
                 }
+            }
+        }
+        .sheet(isPresented: $showHistory) {
+            TripHistoryView(routeViewModel: routeViewModel)
+        }
+        .fullScreenCover(isPresented: $showIntro) {
+            FeatureIntroScreen(
+                icon: "signpost.right.and.left.fill",
+                title: "Fahrt",
+                message: "Gib Start und Ziel ein — die App berechnet eine Route und prüft dabei, ob einer der bekannten Bahnübergänge im Weg liegt. Ist die Schranke voraussichtlich zu, bekommst du eine Umfahrung vorgeschlagen. Die eigentliche Navigation übernimmt Apple oder Google Maps; diese App überwacht im Hintergrund weiter, ob sich die Zugankunft während der Fahrt deutlich ändert."
+            ) {
+                hasSeenFahrtIntro = true
+                showIntro = false
+            }
+        }
+        .alert(
+            "Name für diesen Ort",
+            isPresented: Binding(get: { favoriteNameTarget != nil }, set: { if !$0 { favoriteNameTarget = nil } })
+        ) {
+            TextField("z.B. Zuhause", text: $newFavoriteName)
+            Button("Speichern") {
+                if let target = favoriteNameTarget, !newFavoriteName.isEmpty {
+                    let mapItem: MKMapItem? = switch target {
+                    case .start:       routeViewModel.selectedStart
+                    case .destination: routeViewModel.selectedDestination
+                    case .waypoint:    routeViewModel.selectedWaypoint
+                    }
+                    if let mapItem { routeViewModel.addFavorite(name: newFavoriteName, mapItem: mapItem) }
+                }
+                newFavoriteName = ""
+                favoriteNameTarget = nil
+            }
+            Button("Abbrechen", role: .cancel) {
+                newFavoriteName = ""
+                favoriteNameTarget = nil
             }
         }
     }
 
     private enum LocationPickerTarget: Identifiable {
-        case start, destination
+        case start, destination, waypoint
         var id: Self { self }
         var title: String {
             switch self {
             case .start:       "Start wählen"
             case .destination: "Ziel wählen"
+            case .waypoint:    "Zwischenstopp wählen"
             }
         }
+    }
+
+    // MARK: - Kopfbereich
+
+    /// Rein visuell, wie im Wächter-Tab ein kurzer farbiger Auftakt statt direkt mit dem
+    /// Formular zu starten (Nutzerwunsch: "der Tab ist noch bisschen langweilig").
+    private var heroHeader: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "signpost.right.and.left.fill")
+                .font(.title2)
+                .foregroundStyle(Color.brand)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Wohin geht's?")
+                    .font(.headline)
+                Text("Route berechnen, Bahnübergänge im Blick behalten.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+    }
+
+    private var travelModePicker: some View {
+        Picker("Verkehrsmittel", selection: Binding(
+            get: { routeViewModel.travelMode },
+            set: { routeViewModel.setTravelMode($0) }
+        )) {
+            ForEach(RouteViewModel.TravelMode.allCases, id: \.self) { mode in
+                Label(mode.label, systemImage: mode.icon).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
     }
 
     // MARK: - Suche
@@ -78,14 +168,48 @@ struct RouteView: View {
                 onChange: { routeViewModel.updateStartQuery($0) },
                 onSelect: { completion in Task { await routeViewModel.selectStart(completion) } },
                 onUseCurrentLocation: { routeViewModel.useCurrentLocationAsStart() },
-                onPickOnMap: { pickingLocationFor = .start }
+                onPickOnMap: { pickingLocationFor = .start },
+                onSelectFavorite: { routeViewModel.setStartFromMap($0.mapItem) },
+                canSaveFavorite: routeViewModel.selectedStart != nil,
+                onSaveFavorite: { favoriteNameTarget = .start }
             )
+            if showWaypointField {
+                searchField(
+                    label: "Zwischenstopp", placeholder: "Adresse oder Ort eingeben",
+                    text: routeViewModel.waypointQuery, completions: routeViewModel.waypointCompletions,
+                    onChange: { routeViewModel.updateWaypointQuery($0) },
+                    onSelect: { completion in Task { await routeViewModel.selectWaypoint(completion) } },
+                    onPickOnMap: { pickingLocationFor = .waypoint },
+                    onSelectFavorite: { routeViewModel.setWaypointFromMap($0.mapItem) },
+                    canSaveFavorite: routeViewModel.selectedWaypoint != nil,
+                    onSaveFavorite: { favoriteNameTarget = .waypoint }
+                )
+            }
+
+            Button {
+                if showWaypointField {
+                    routeViewModel.clearWaypoint()
+                }
+                showWaypointField.toggle()
+            } label: {
+                Label(
+                    showWaypointField ? "Zwischenstopp entfernen" : "Zwischenstopp hinzufügen",
+                    systemImage: showWaypointField ? "minus.circle" : "plus.circle"
+                )
+            }
+            .font(.caption)
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
+
             searchField(
                 label: "Ziel", placeholder: "Adresse oder Ort eingeben",
                 text: routeViewModel.destinationQuery, completions: routeViewModel.destinationCompletions,
                 onChange: { routeViewModel.updateDestinationQuery($0) },
                 onSelect: { completion in Task { await routeViewModel.selectDestination(completion) } },
-                onPickOnMap: { pickingLocationFor = .destination }
+                onPickOnMap: { pickingLocationFor = .destination },
+                onSelectFavorite: { routeViewModel.setDestinationFromMap($0.mapItem) },
+                canSaveFavorite: routeViewModel.selectedDestination != nil,
+                onSaveFavorite: { favoriteNameTarget = .destination }
             )
         }
         .padding(16)
@@ -96,7 +220,9 @@ struct RouteView: View {
     private func searchField(
         label: String, placeholder: String, text: String, completions: [MKLocalSearchCompletion],
         onChange: @escaping (String) -> Void, onSelect: @escaping (MKLocalSearchCompletion) -> Void,
-        onUseCurrentLocation: (() -> Void)? = nil, onPickOnMap: @escaping () -> Void
+        onUseCurrentLocation: (() -> Void)? = nil, onPickOnMap: @escaping () -> Void,
+        onSelectFavorite: @escaping (RouteViewModel.FavoriteDestination) -> Void,
+        canSaveFavorite: Bool, onSaveFavorite: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
@@ -104,6 +230,26 @@ struct RouteView: View {
                 .foregroundStyle(.secondary)
             TextField(placeholder, text: Binding(get: { text }, set: onChange))
                 .textFieldStyle(.roundedBorder)
+            if !routeViewModel.favorites.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(routeViewModel.favorites) { favorite in
+                            Button {
+                                onSelectFavorite(favorite)
+                            } label: {
+                                Label(favorite.name, systemImage: "star.fill")
+                                    .font(.caption.bold())
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Color.accentColor.opacity(0.12))
+                                    .foregroundStyle(Color.accentColor)
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
             HStack(spacing: 16) {
                 if let onUseCurrentLocation {
                     Button(action: onUseCurrentLocation) {
@@ -112,6 +258,11 @@ struct RouteView: View {
                 }
                 Button(action: onPickOnMap) {
                     Label("Auf Karte wählen", systemImage: "map")
+                }
+                if canSaveFavorite {
+                    Button(action: onSaveFavorite) {
+                        Label("Als Favorit speichern", systemImage: "star")
+                    }
                 }
             }
             .font(.caption)
@@ -160,7 +311,7 @@ struct RouteView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.bigAction(.brand))
+        .buttonStyle(.bigAction(routeViewModel.canCalculateRoute ? .brand : .gray))
         .disabled(!routeViewModel.canCalculateRoute)
     }
 
@@ -248,6 +399,27 @@ struct RouteView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(hits) { match in
                             crossingDetailRow(match)
+                        }
+                    }
+                    if routeViewModel.travelMode != .auto {
+                        // Bewusst generisch statt eine konkrete Übergangs-Behauptung — es gibt
+                        // keine verifizierten Unterführungs-Standorte im Code (dieselbe Lücke wie
+                        // bei den Ausweichstraßen), eine falsche Zusage wäre hier irreführend.
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "figure.walk.motion")
+                                .foregroundStyle(.blue)
+                            Text("An manchen Bahnübergängen gibt es eine Unterführung für Fußgänger/Radfahrer, die unabhängig vom Schrankenzustand nutzbar ist — vor Ort prüfen.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if let recommendation = routeViewModel.departureRecommendation(for: index) {
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "lightbulb.fill")
+                                .foregroundStyle(.yellow)
+                            Text(recommendation)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -344,6 +516,14 @@ struct RouteView: View {
                     .multilineTextAlignment(.center)
             }
 
+            if let index = routeViewModel.selectedRouteIndex, routeViewModel.routes.indices.contains(index) {
+                ShareLink(item: shareText(for: index)) {
+                    Label("Route teilen", systemImage: "square.and.arrow.up")
+                        .font(.subheadline)
+                }
+                .padding(.top, 2)
+            }
+
             if routeViewModel.isTripActive {
                 Button(role: .destructive) {
                     routeViewModel.stopTrip()
@@ -353,6 +533,16 @@ struct RouteView: View {
                 .padding(.top, 4)
             }
         }
+    }
+
+    private func shareText(for index: Int) -> String {
+        let destinationName = routeViewModel.selectedDestination?.name ?? "meinem Ziel"
+        let arrival = Date().addingTimeInterval(routeViewModel.routes[index].expectedTravelTime)
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        formatter.locale = Locale(identifier: "de_DE")
+        return "Ich bin unterwegs nach \(destinationName), Ankunft ca. \(formatter.string(from: arrival)) Uhr."
     }
 
     private func bannerView(_ message: String) -> some View {

@@ -5,16 +5,22 @@ import SwiftUI
 struct OnboardingFlow: View {
     @Binding var isPresented: Bool
 
-    private enum Step { case welcome, permissions }
+    private enum Step { case welcome, waechter, permissions }
     @State private var step: Step = .welcome
 
     @AppStorage("permissionsDeferred") private var permissionsDeferred = false
+    @AppStorage("waechterEnabled") private var waechterEnabled = true
 
     var body: some View {
         Group {
             switch step {
             case .welcome:
                 OnboardingWelcomeScreen {
+                    withAnimation { step = .waechter }
+                }
+            case .waechter:
+                OnboardingWaechterScreen { wantsWaechter in
+                    waechterEnabled = wantsWaechter
                     withAnimation { step = .permissions }
                 }
             case .permissions:
@@ -82,7 +88,67 @@ private struct OnboardingWelcomeScreen: View {
     }
 }
 
-// MARK: - Screen 2: Berechtigungen erklären
+// MARK: - Screen 2: Wächter-Feature (Ränge/Meldungen) an- oder abwählen
+
+private struct OnboardingWaechterScreen: View {
+    /// true = "Ja, dabei", false = "Nein danke" — steuert `waechterEnabled`, jederzeit in den
+    /// Einstellungen änderbar (siehe SettingsView "Wächter"-Section), keine einmalige Festlegung.
+    let onChoice: (Bool) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            VStack(spacing: 20) {
+                Image(systemName: "shield.fill")
+                    .font(.system(size: 60))
+                    .foregroundStyle(Color.brand)
+
+                Text("Werde Schrankenwächter")
+                    .font(.largeTitle.bold())
+                    .foregroundStyle(Color.brand)
+                    .multilineTextAlignment(.center)
+
+                Text("Für jede Meldung sammelst du Rang-Punkte — von Holz bis Diamant — und siehst deine Wochen-Statistik und Serie im eigenen „Wächter“-Tab. Rein optional und jederzeit in den Einstellungen änderbar.")
+                    .font(.body)
+                    .foregroundStyle(Color.brand)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+            }
+            .padding(.horizontal, 32)
+
+            Spacer()
+
+            VStack(spacing: 12) {
+                Button {
+                    onChoice(true)
+                } label: {
+                    Text("Ja, ich mache mit")
+                        .font(.title3.bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 18)
+                        .background(Color.brand, in: RoundedRectangle(cornerRadius: 16))
+                        .foregroundStyle(.white)
+                }
+
+                Button {
+                    onChoice(false)
+                } label: {
+                    Text("Nein danke")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.brand.opacity(0.6))
+                        .padding(.vertical, 10)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.white.ignoresSafeArea())
+    }
+}
+
+// MARK: - Screen 3: Berechtigungen erklären
 
 private struct OnboardingPermissionsScreen: View {
     let onAccept: () -> Void

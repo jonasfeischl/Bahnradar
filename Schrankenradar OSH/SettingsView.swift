@@ -8,6 +8,9 @@ struct SettingsView: View {
 
     @AppStorage("voiceEnabled") private var voiceEnabled: Bool = true
     @AppStorage("permissionsDeferred") private var permissionsDeferred = false
+    /// Gleicher Key wie im Onboarding (OnboardingWaechterScreen) — dort einmalig gewählt,
+    /// hier jederzeit revidierbar.
+    @AppStorage("waechterEnabled") private var waechterEnabled = true
     @State private var showDeleteConfirmation = false
     @State private var showHelp = false
     @State private var isRequestingPermissions = false
@@ -79,7 +82,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Sprachansagen")
                 } footer: {
-                    Text("Sprachansagen werden automatisch ausgelöst wenn du fährst und dich in der Nähe der Schranke befindest.\n\nGenutzt wird eine natürlichere, direkt in der App eingebaute KI-Stimme — läuft komplett auf dem Gerät, keine Internetverbindung nötig. Bei Problemen hörst du automatisch die normale iOS-Stimme als Rückfalloption, nie Stille.")
+                    Text("Sprachansagen werden automatisch ausgelöst wenn du fährst und dich in der Nähe der Schranke befindest.")
                 }
 
                 // MARK: Bahnübergänge
@@ -160,6 +163,16 @@ struct SettingsView: View {
 
                 } header: {
                     Text("Lerndaten")
+                }
+
+                // MARK: Wächter — an-/abwählbar, gleicher Key wie im Onboarding
+                // (OnboardingWaechterScreen), damit die dortige Wahl hier jederzeit revidierbar ist.
+                Section {
+                    Toggle("Wächter-Tab anzeigen", isOn: $waechterEnabled)
+                } header: {
+                    Text("Wächter")
+                } footer: {
+                    Text("Zeigt den „Wächter“-Tab mit Rängen, XP und Wochen-Statistik für deine Meldungen.")
                 }
 
                 // MARK: Admin (versteckt, siehe adminUnlocked-Kommentar oben) — hier kommen
@@ -378,8 +391,29 @@ struct CrossingSettingsDetailView: View {
 
     // MARK: - Offset-Sektion
 
+    /// Für normale Nutzer nur ein knapper Status (Symbol/Farbe wie gehabt aus offsetIcon/
+    /// offsetColor), ohne die rohen Sekundenwerte/Community-Zählungen — die sind zu technisch
+    /// für die alltägliche Nutzung ("wird automatisch gelernt" reicht als Erklärung, siehe
+    /// Footer). Die ausklappbare Detailansicht bleibt nur für eingeloggte Admins sichtbar,
+    /// gleiche Gate wie bei den Reset-Buttons weiter unten.
     @ViewBuilder
     private func offsetSection(index: Int, crossing: CrossingLocation) -> some View {
+        if adminUnlocked {
+            adminOffsetDisclosure(index: index, crossing: crossing)
+        } else {
+            HStack(spacing: 8) {
+                Image(systemName: offsetIcon(crossing))
+                    .foregroundStyle(offsetColor(crossing))
+                Text("Automatisch kalibriert")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    @ViewBuilder
+    private func adminOffsetDisclosure(index: Int, crossing: CrossingLocation) -> some View {
         @Bindable var store = viewModel.store
 
         let community = viewModel.communityOffsets[crossing.id]

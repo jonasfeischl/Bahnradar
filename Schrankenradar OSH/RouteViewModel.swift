@@ -1,7 +1,9 @@
+import ActivityKit
 import CoreLocation
 import MapKit
 import Observation
 import UIKit
+import UserNotifications
 
 /// Berechnet für eine Start-Ziel-Route, ob sie einen der bekannten Bahnübergänge kreuzt und ob
 /// dieser zur voraussichtlichen Ankunftszeit offen oder geschlossen sein wird — Grundlage für
@@ -30,6 +32,196 @@ final class RouteViewModel: NSObject {
     private var startDebounceTask: Task<Void, Never>?
     private var destinationDebounceTask: Task<Void, Never>?
 
+    // MARK: - Zwischenstopp
+
+    /// Bewusst GENAU EIN optionaler Zwischenstopp statt einer beliebigen Liste — deckt den
+    /// Hauptfall ab ("unterwegs noch wen abholen"), ohne die komplette Such-/Kartenauswahl-UI
+    /// für eine variable Anzahl Wegpunkte neu bauen zu müssen. Bei Bedarf später erweiterbar.
+    var waypointQuery: String = ""
+    var waypointCompletions: [MKLocalSearchCompletion] = []
+    private(set) var selectedWaypoint: MKMapItem?
+    private var waypointCompleter: MKLocalSearchCompleter?
+    private var waypointDebounceTask: Task<Void, Never>?
+
+    func updateWaypointQuery(_ text: String) {
+        waypointQuery = text
+        selectedWaypoint = nil
+        resetRoutes()
+        waypointDebounceTask?.cancel()
+        guard !text.isEmpty else { waypointCompletions = []; return }
+        waypointDebounceTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+            self.waypointCompleter?.queryFragment = text
+        }
+    }
+
+    func selectWaypoint(_ completion: MKLocalSearchCompletion) async {
+        waypointQuery = completion.title
+        waypointCompletions = []
+        resetRoutes()
+        selectedWaypoint = await resolve(completion)
+    }
+
+    func setWaypointFromMap(_ item: MKMapItem) {
+        resetRoutes()
+        waypointQuery = item.name ?? "Ausgewählter Ort"
+        waypointCompletions = []
+        selectedWaypoint = item
+    }
+
+    /// Entfernt den Zwischenstopp wieder — z.B. über das "×" neben dem Suchfeld in RouteView.
+    func clearWaypoint() {
+        resetRoutes()
+        waypointQuery = ""
+        waypointCompletions = []
+        selectedWaypoint = nil
+    }
+
+    // MARK: - Reisemodus
+
+    /// Bewusst NICHT persistiert (kein @AppStorage) — fahrtspezifisch statt eine dauerhafte
+    /// Einstellung, genau wie selectedStart/selectedDestination auch nicht persistiert werden.
+    enum TravelMode: String, CaseIterable, Hashable {
+        case auto, fahrrad, fuss
+
+        var mkTransportType: MKDirectionsTransportType {
+            switch self {
+            case .auto:    .automobile
+            case .fahrrad: .cycling
+            case .fuss:    .walking
+            }
+        }
+
+        var appleLaunchMode: String {
+            switch self {
+            case .auto:    MKLaunchOptionsDirectionsModeDriving
+            case .fahrrad: MKLaunchOptionsDirectionsModeCycling
+            case .fuss:    MKLaunchOptionsDirectionsModeWalking
+            }
+        }
+
+        var googleModeParam: String {
+            switch self {
+            case .auto:    "driving"
+            case .fahrrad: "bicycling"
+            case .fuss:    "walking"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .auto:    "car.fill"
+            case .fahrrad: "bicycle"
+            case .fuss:    "figure.walk"
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .auto:    "Auto"
+            case .fahrrad: "Fahrrad"
+            case .fuss:    "Zu Fuß"
+            }
+        }
+    }
+
+    private(set) var travelMode: TravelMode = .auto
+
+    /// Eine stehengebliebene Auto-Route wäre im Fußgänger-/Rad-Modus schlicht falsch — deshalb
+    /// dieselbe resetRoutes()-Invalidierung wie bei jeder Start-/Ziel-Änderung.
+    func setTravelMode(_ mode: TravelMode) {
+        guard mode != travelMode else { return }
+        travelMode = mode
+        resetRoutes()
+    }
+
+    // MARK: - Favoriten
+
+    /// Gespeichertes Ziel (z.B. "Zuhause"/"Arbeit") zum schnellen Wählen statt Neu-Eintippen.
+    /// `MKMapItem` selbst ist nicht Codable — Koordinate + Name reichen zum Rekonstruieren
+    /// (gleiches Muster wie an den bestehenden `MKMapItem(location:address:)`-Stellen unten).
+    struct FavoriteDestination: Codable, Identifiable, Equatable {
+        let id: UUID
+        var name: String
+        let latitude: Double
+        let longitude: Double
+
+        var mapItem: MKMapItem {
+            let item = MKMapItem(location: CLLocation(latitude: latitude, longitude: longitude), address: nil)
+            item.name = name
+            return item
+        }
+    }
+    private(set) var favorites: [FavoriteDestination] = []
+    private static let favoritesKey = "routeFavorites"
+
+    func addFavorite(name: String, mapItem: MKMapItem) {
+        let coordinate = mapItem.location.coordinate
+        favorites.append(FavoriteDestination(id: UUID(), name: name, latitude: coordinate.latitude, longitude: coordinate.longitude))
+        persistFavorites()
+    }
+
+    func removeFavorite(_ favorite: FavoriteDestination) {
+        favorites.removeAll { $0.id == favorite.id }
+        persistFavorites()
+    }
+
+    private func persistFavorites() {
+        guard let data = try? JSONEncoder().encode(favorites) else { return }
+        UserDefaults.standard.set(data, forKey: Self.favoritesKey)
+    }
+
+    private static func loadFavorites() -> [FavoriteDestination] {
+        guard let data = UserDefaults.standard.data(forKey: favoritesKey),
+              let decoded = try? JSONDecoder().decode([FavoriteDestination].self, from: data)
+        else { return [] }
+        return decoded
+    }
+
+    // MARK: - Fahrten-Verlauf
+
+    /// Abgeschlossene Fahrt mit Ziel, (falls getroffen) Übergang und Ausgang — für die
+    /// Verlaufsansicht (TripHistoryView). Gleiches Persistenz-Muster wie CrossingRecorder
+    /// (JSON-Encode in UserDefaults).
+    struct TripRecord: Codable, Identifiable {
+        let id: UUID
+        let date: Date
+        let destinationName: String
+        let crossingName: String?
+        let wasBlockedAtStart: Bool?
+        let finalDelayMinutes: Int?
+    }
+    private(set) var tripHistory: [TripRecord] = []
+    private static let tripHistoryKey = "tripHistory"
+
+    // Während einer laufenden Fahrt gesammelt (siehe startTrip()/checkForSignificantChange()),
+    // in stopTrip() zu einem TripRecord zusammengeführt — analog zum bestehenden
+    // monitoredCrossing/monitoredEventId/baselineCrossingTime-Trio für dieselbe Fahrt.
+    private var currentTripDestinationName: String?
+    private var currentTripCrossingName: String?
+    private var currentTripWasBlockedAtStart: Bool?
+    private var currentTripLastDelayMinutes: Int?
+
+    private func persistTripHistory() {
+        guard let data = try? JSONEncoder().encode(tripHistory) else { return }
+        UserDefaults.standard.set(data, forKey: Self.tripHistoryKey)
+    }
+
+    private static func loadTripHistory() -> [TripRecord] {
+        guard let data = UserDefaults.standard.data(forKey: tripHistoryKey),
+              let decoded = try? JSONDecoder().decode([TripRecord].self, from: data)
+        else { return [] }
+        return decoded
+    }
+
+    func deleteTripHistory(at offsets: IndexSet) {
+        for index in offsets.sorted(by: >) where tripHistory.indices.contains(index) {
+            tripHistory.remove(at: index)
+        }
+        persistTripHistory()
+    }
+
     // MARK: - Routenberechnung
 
     var isCalculating = false
@@ -57,7 +249,11 @@ final class RouteViewModel: NSObject {
             forcedBypassPoint = nil
         }
 
-        init(legs: [MKRoute], forcedBypassPoint: CLLocationCoordinate2D) {
+        /// forcedBypassPoint bleibt optional: derselbe Mehr-Etappen-Zusammenbau dient sowohl der
+        /// erzwungenen Ausweichstraßen-Route (siehe tryAddKnownBypassIfNeeded, dort nicht-nil)
+        /// als auch einem vom Nutzer gewählten Zwischenstopp (dort nil — kein "umfährt die
+        /// Schranke"-Anspruch, nur ein zusätzlicher Wegpunkt).
+        init(legs: [MKRoute], forcedBypassPoint: CLLocationCoordinate2D? = nil) {
             let combined = legs.flatMap { RouteViewModel.coordinates(of: $0.polyline) }
             polyline = MKPolyline(coordinates: combined, count: combined.count)
             expectedTravelTime = legs.reduce(0) { $0 + $1.expectedTravelTime }
@@ -122,6 +318,9 @@ final class RouteViewModel: NSObject {
     var isTripActive = false
     var currentBannerMessage: String?
     private var monitorTask: Task<Void, Never>?
+    private var currentActivity: Activity<TripActivityAttributes>?
+    private var tripStartedAt: Date?
+    private var currentTripEtaSeconds: TimeInterval?
     private var monitoredCrossing: CrossingLocation?
     private var monitoredEventId: String?
     private var baselineCrossingTime: Date?
@@ -169,6 +368,8 @@ final class RouteViewModel: NSObject {
 
     override init() {
         super.init()
+        favorites = Self.loadFavorites()
+        tripHistory = Self.loadTripHistory()
         let region = MKCoordinateRegion(
             center: Self.regionCenter, latitudinalMeters: 30_000, longitudinalMeters: 30_000
         )
@@ -184,6 +385,12 @@ final class RouteViewModel: NSObject {
         destination.region = region
         destination.resultTypes = [.address, .pointOfInterest]
         destinationCompleter = destination
+
+        let waypoint = MKLocalSearchCompleter()
+        waypoint.delegate = self
+        waypoint.region = region
+        waypoint.resultTypes = [.address, .pointOfInterest]
+        waypointCompleter = waypoint
     }
 
     /// Verdrahtung von außen (Schrankenradar_OSHApp), analog CrossingViewModel.setup(voiceAnnouncer:).
@@ -307,10 +514,28 @@ final class RouteViewModel: NSObject {
         calculationError = nil
         defer { isCalculating = false }
 
+        if let waypoint = selectedWaypoint {
+            // Mit Zwischenstopp: zwei Etappen einzeln berechnen und zu EINER Route kombinieren
+            // (RouteCandidate.init(legs:), forcedBypassPoint hier bewusst nil — kein "umfährt
+            // die Schranke"-Anspruch, nur ein zusätzlicher Wegpunkt). Keine Alternativrouten in
+            // diesem Fall, das würde die Zwei-Etappen-Logik unnötig verkomplizieren.
+            guard let leg1 = try? await directions(from: sourceItem, to: waypoint, mode: travelMode.mkTransportType),
+                  let leg2 = try? await directions(from: waypoint, to: destination, mode: travelMode.mkTransportType) else {
+                guard generation == calculationGeneration else { return }
+                resetRoutes()
+                calculationError = "Route über den Zwischenstopp konnte nicht berechnet werden."
+                return
+            }
+            guard generation == calculationGeneration else { return }
+            routes = [RouteCandidate(legs: [leg1, leg2])]
+            await evaluateRoutes(source: sourceItem, destination: destination, generation: generation)
+            return
+        }
+
         let request = MKDirections.Request()
         request.source = sourceItem
         request.destination = destination
-        request.transportType = .automobile
+        request.transportType = travelMode.mkTransportType
         request.requestsAlternateRoutes = true
 
         do {
@@ -409,6 +634,9 @@ final class RouteViewModel: NSObject {
         source: MKMapItem, destination: MKMapItem, crossings: [CrossingLocation],
         crossingViewModel: CrossingViewModel, generation: Int
     ) async {
+        // "Andere Straße wegen Schranke" ist ein Auto-spezifisches Konzept — für Fußgänger/
+        // Radfahrer ergibt eine erzwungene Straßen-Umfahrung keinen Sinn (siehe TravelMode).
+        guard travelMode == .auto else { return }
         guard detourRouteIndex == nil, let index = crossingRouteIndex, matchesByRoute.indices.contains(index) else { return }
         guard let hit = matchesByRoute[index].first(where: { Self.knownBypassQuery[$0.crossing.id] != nil }),
               let query = Self.knownBypassQuery[hit.crossing.id] else { return }
@@ -442,11 +670,11 @@ final class RouteViewModel: NSObject {
         return item.location.coordinate
     }
 
-    private func directions(from source: MKMapItem, to destination: MKMapItem) async throws -> MKRoute? {
+    private func directions(from source: MKMapItem, to destination: MKMapItem, mode: MKDirectionsTransportType = .automobile) async throws -> MKRoute? {
         let request = MKDirections.Request()
         request.source = source
         request.destination = destination
-        request.transportType = .automobile
+        request.transportType = mode
         let response = try await MKDirections(request: request).calculate()
         return response.routes.first
     }
@@ -544,6 +772,23 @@ final class RouteViewModel: NSObject {
         selectedRouteIndex = index
     }
 
+    /// Nutzt ausschließlich schon geladene Daten (kein zusätzlicher Netzwerk-Call) — prüft für
+    /// den ERSTEN getroffenen (blockierten) Übergang mehrere hypothetische Abfahrts-
+    /// Verzögerungen und meldet die früheste, bei der die Schranke laut Vorhersage bei Ankunft
+    /// wieder offen wäre. Reine Schätzung auf Basis der aktuellen Vorhersage, keine Garantie.
+    func departureRecommendation(for index: Int) -> String? {
+        guard routes.indices.contains(index), matchesByRoute.indices.contains(index),
+              let hit = matchesByRoute[index].first, hit.isBlocked, let event = hit.event
+        else { return nil }
+        for delayMinutes in stride(from: 5, through: 30, by: 5) {
+            let hypotheticalArrival = Date().addingTimeInterval(Double(delayMinutes) * 60 + hit.etaSeconds)
+            if event.status(at: hypotheticalArrival) == .open {
+                return "Fahr in \(delayMinutes) Minuten los, dann ist \(hit.crossing.name) bei Ankunft voraussichtlich offen."
+            }
+        }
+        return nil
+    }
+
     // MARK: - Weiterleitung an Apple Maps / Google Maps
 
     enum MapsApp { case apple, google }
@@ -581,7 +826,7 @@ final class RouteViewModel: NSObject {
     /// location/address — init(location:address:) ist bereits an anderer Stelle im Projekt im
     /// Einsatz (TravelTimesCard.swift).
     private func openInAppleMaps(source: MKMapItem?, destination: MKMapItem, viaPoint: CLLocationCoordinate2D?) {
-        let options = [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving]
+        let options = [MKLaunchOptionsDirectionsModeKey: travelMode.appleLaunchMode]
 
         guard source != nil || viaPoint != nil else {
             // Weder eigener Start noch Umfahrung — das einfache openInMaps() bedeutet für Apple
@@ -612,7 +857,7 @@ final class RouteViewModel: NSObject {
     /// "nicht installiert" wäre an dieser Stelle unerreichbarer Code.
     private func openInGoogleMaps(source: MKMapItem?, destination: MKMapItem, viaPoint: CLLocationCoordinate2D?) {
         let destCoordinate = destination.location.coordinate
-        var appQuery = "daddr=\(destCoordinate.latitude),\(destCoordinate.longitude)&directionsmode=driving"
+        var appQuery = "daddr=\(destCoordinate.latitude),\(destCoordinate.longitude)&directionsmode=\(travelMode.googleModeParam)"
         // Ohne saddr interpretiert Google Maps "ab aktuellem Standort" — genau das
         // Standardverhalten, wenn der Nutzer keinen eigenen Startpunkt gewählt hat.
         if let source {
@@ -644,6 +889,15 @@ final class RouteViewModel: NSObject {
         isTripActive = true
         currentBannerMessage = nil
 
+        currentTripDestinationName = selectedDestination?.name
+        currentTripCrossingName = firstHit.crossing.name
+        currentTripWasBlockedAtStart = firstHit.isBlocked
+        currentTripLastDelayMinutes = nil
+
+        tripStartedAt = Date()
+        currentTripEtaSeconds = firstHit.etaSeconds
+        startLiveActivity(crossingName: firstHit.crossing.name, status: firstHit.statusAtArrival)
+
         monitorTask?.cancel()
         monitorTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -652,6 +906,7 @@ final class RouteViewModel: NSObject {
                 await self?.checkForSignificantChange()
             }
         }
+        Task { await requestNotificationPermissionIfNeeded() }
     }
 
     func stopTrip() {
@@ -662,6 +917,64 @@ final class RouteViewModel: NSObject {
         monitoredEventId = nil
         baselineCrossingTime = nil
         currentBannerMessage = nil
+        tripStartedAt = nil
+        currentTripEtaSeconds = nil
+
+        let activityToEnd = currentActivity
+        currentActivity = nil
+        Task { await activityToEnd?.end(nil, dismissalPolicy: .immediate) }
+
+        if let destinationName = currentTripDestinationName {
+            let record = TripRecord(
+                id: UUID(), date: Date(), destinationName: destinationName,
+                crossingName: currentTripCrossingName, wasBlockedAtStart: currentTripWasBlockedAtStart,
+                finalDelayMinutes: currentTripLastDelayMinutes
+            )
+            tripHistory.insert(record, at: 0)
+            persistTripHistory()
+        }
+        currentTripDestinationName = nil
+        currentTripCrossingName = nil
+        currentTripWasBlockedAtStart = nil
+        currentTripLastDelayMinutes = nil
+    }
+
+    /// Best-effort — schlägt das Anlegen fehl (Live Activities in iOS-Einstellungen deaktiviert,
+    /// Berechtigung fehlt o.ä.), läuft die bestehende Sprache/Banner/Push-Kette unverändert
+    /// weiter. `try?` statt Fehlerbehandlung, da es hier keine sinnvolle Nutzeraktion gäbe.
+    private func startLiveActivity(crossingName: String, status: CrossingStatus?) {
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        let attributes = TripActivityAttributes(
+            crossingName: crossingName, destinationName: selectedDestination?.name ?? "Ziel"
+        )
+        let content = ActivityContent(state: liveActivityContent(status: status), staleDate: nil)
+        currentActivity = try? Activity.request(attributes: attributes, content: content, pushType: nil)
+    }
+
+    /// `etaText` zählt linear ab der ursprünglich berechneten Fahrzeit runter (keine echte
+    /// GPS-Live-Verfolgung — die App navigiert ja bewusst nicht selbst, siehe RouteView-Kontext)
+    /// statt stehenzubleiben; für eine grobe Orientierung auf dem Sperrbildschirm reicht das.
+    private func liveActivityContent(status: CrossingStatus?) -> TripActivityAttributes.ContentState {
+        var etaText = ""
+        if let tripStartedAt, let etaSeconds = currentTripEtaSeconds {
+            let remainingMinutes = Int((etaSeconds - Date().timeIntervalSince(tripStartedAt)) / 60)
+            etaText = remainingMinutes > 0 ? "Ankunft in ca. \(remainingMinutes) Min" : "Gleich da"
+        }
+        return TripActivityAttributes.ContentState(
+            statusLabel: status?.label ?? "Unbekannt",
+            etaText: etaText,
+            isBlocked: status != nil && status != .open
+        )
+    }
+
+    /// Erst beim ersten echten Fahrtstart angefragt statt schon im allgemeinen Onboarding —
+    /// gleiches Prinzip wie das bestehende "Immer"-Standort-Upgrade (siehe LocationMonitor):
+    /// im Kontext angefragt, in dem der Mehrwert erkennbar ist, statt pauschal vorab.
+    private func requestNotificationPermissionIfNeeded() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .notDetermined else { return }
+        _ = try? await center.requestAuthorization(options: [.alert, .sound])
     }
 
     private func checkForSignificantChange() async {
@@ -682,6 +995,14 @@ final class RouteViewModel: NSObject {
         let events = await crossingViewModel.fetchEvents(for: crossing)
         guard let match = events.first(where: { $0.id == eventId }) else { return }
 
+        // Live Activity bei JEDEM Tick aktualisieren (nicht nur bei "signifikanter" Änderung
+        // weiter unten) — sie soll den jeweils aktuellen Stand zeigen, nicht wie Sprache/Banner
+        // nur bei großen Sprüngen anschlagen.
+        if let activity = currentActivity {
+            let content = ActivityContent(state: liveActivityContent(status: match.status(at: Date())), staleDate: nil)
+            await activity.update(content)
+        }
+
         let diff = match.estimatedCrossingTime.timeIntervalSince(baseline)
         guard abs(diff) >= Self.significantChangeThreshold else { return }
 
@@ -690,9 +1011,25 @@ final class RouteViewModel: NSObject {
             ? "Der Zug an \(crossing.name) kommt \(minutes) Min später als erwartet."
             : "Der Zug an \(crossing.name) kommt \(minutes) Min früher als erwartet."
         voiceAnnouncer?.announceTrainTimeChanged()
+        currentTripLastDelayMinutes = Int((diff / 60).rounded())
+        await postSignificantChangeNotification()
         // Baseline aktualisieren, sonst würde jeder folgende 30s-Tick dieselbe (jetzt bereits
         // gemeldete) Abweichung erneut als "signifikant" werten und den Alarm wiederholen.
         baselineCrossingTime = match.estimatedCrossingTime
+    }
+
+    /// Ergänzt Sprachansage/Banner, ersetzt sie nicht — erreicht zusätzlich auch, wenn man
+    /// gerade in Apple/Google Maps ist statt in der App (Nutzerwunsch). Nutzt denselben bereits
+    /// berechneten currentBannerMessage-Text, keine eigene Formatierung nötig. `trigger: nil`
+    /// liefert sofort statt zeitversetzt aus.
+    private func postSignificantChangeNotification() async {
+        let content = UNMutableNotificationContent()
+        content.title = "Zugankunft geändert"
+        content.body = currentBannerMessage ?? ""
+        content.sound = .default
+        try? await UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        )
     }
 }
 
@@ -704,6 +1041,8 @@ extension RouteViewModel: MKLocalSearchCompleterDelegate {
             startCompletions = completer.results
         } else if completer === destinationCompleter {
             destinationCompletions = completer.results
+        } else if completer === waypointCompleter {
+            waypointCompletions = completer.results
         }
     }
 

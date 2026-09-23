@@ -1191,6 +1191,7 @@ final class CrossingViewModel {
                 guard let self else { return }
                 self.evaluateLifecycleAnnouncements()
                 self.evaluateVoiceAnnouncement()
+                self.evaluateWaitTimeTracking()
                 try? await Task.sleep(for: .seconds(1))
             }
         }
@@ -1225,6 +1226,21 @@ final class CrossingViewModel {
 
         let next = nextEvents.first { $0.minutesUntil > 0 }
         announcer.announce(status: currentStatus, nextEvent: next, crossingName: crossing.spokenCrossingName)
+    }
+
+    /// Speist WaitTimeTracker (Wartezeit-Rückblick, Schranke-Tab) — bewusst NICHT an
+    /// isDriving/isAppInBackground/voiceEnabled gekoppelt wie die Sprach-Logik direkt darüber:
+    /// Wartezeit soll unabhängig vom Fahrstatus oder Vordergrund/Hintergrund zählen, solange man
+    /// real in Reichweite der Schranke ist. .closed/.opening zählen als "Schranke unten",
+    /// .warning/.open nicht.
+    @MainActor
+    private func evaluateWaitTimeTracking() {
+        guard !nextEvents.isEmpty else {
+            WaitTimeTracker.shared.tick(isWaiting: false)
+            return
+        }
+        let isWaiting = isNearCrossing && [.closed, .opening].contains(worstStatus(at: Date()))
+        WaitTimeTracker.shared.tick(isWaiting: isWaiting)
     }
 
     /// Zwei einmalige Meilenstein-Ansagen beim Anfahren eines Übergangs. Die Näherungs-Ansage

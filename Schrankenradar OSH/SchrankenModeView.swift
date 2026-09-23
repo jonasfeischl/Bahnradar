@@ -7,6 +7,7 @@ struct SchrankenModeView: View {
     @State private var recorder = CrossingRecorder()
     @State private var showHistory = false
     @State private var showPattern = false
+    @State private var showWaitHistory = false
     @State private var tick = 0
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -90,6 +91,18 @@ struct SchrankenModeView: View {
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("Schranken-Modus")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // Bewusst hier auf NavigationStack-Ebene statt bei den isAtCrossing-gated
+                // Aufzeichnungen/Tages-Muster-Buttons weiter unten — ein Monats-Rückblick soll
+                // auch von zuhause aus einsehbar sein, nicht nur direkt an der Schranke.
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showWaitHistory = true
+                    } label: {
+                        Image(systemName: "calendar.badge.clock")
+                    }
+                }
+            }
             .onReceive(timer) { _ in tick += 1 }  // View jede Sekunde neu zeichnen
             .onAppear {
                 recorder.switchCrossing(viewModel.store.selectedId)
@@ -112,6 +125,9 @@ struct SchrankenModeView: View {
             }
             .sheet(isPresented: $showPattern) {
                 DailyPatternView(records: recorder.records)
+            }
+            .sheet(isPresented: $showWaitHistory) {
+                WaitTimeHistoryView()
             }
             .fullScreenCover(isPresented: $showIntro) {
                 FeatureIntroScreen(

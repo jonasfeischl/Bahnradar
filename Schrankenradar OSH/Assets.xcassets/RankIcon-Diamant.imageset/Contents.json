@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "diamant_badge.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
