@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 // MARK: - Markenfarbe
 
@@ -79,6 +80,22 @@ enum PermissionRequester {
             locationMonitor.stop()
         }
 
+        // Auf Nutzerwunsch (vorher: erst beim ersten Fahrt-Start, siehe RouteViewModel) auch
+        // Nachrichten/Benachrichtigungen hier bündeln, statt separat und überraschend später.
+        try? await Task.sleep(for: .milliseconds(500))
+        await requestNotifications()
+
         DebugLog.shared.add("Berechtigungs-Sequenz abgeschlossen.")
+    }
+
+    /// Eigener Baustein statt Teil von requestAll(), weil RouteViewModel.startTrip() das hier
+    /// als Sicherheitsnetz erneut aufruft — für Nutzer, die die Sequenz oben per "Später"
+    /// übersprungen haben oder die App schon vor dieser Umstellung installiert hatten.
+    /// notDetermined-Guard macht Mehrfachaufrufe gefahrlos (iOS zeigt den Dialog nur einmal).
+    static func requestNotifications() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .notDetermined else { return }
+        _ = try? await center.requestAuthorization(options: [.alert, .sound])
     }
 }

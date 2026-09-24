@@ -176,6 +176,9 @@ private struct OnboardingPermissionsScreen: View {
                     permissionRow(icon: "figure.walk.motion",
                                   title: "Bewegung & Fitness",
                                   text: "Erkennt automatisch, wenn du fährst, und aktiviert dann die Sprachansagen.")
+                    permissionRow(icon: "bell.badge.fill",
+                                  title: "Benachrichtigungen",
+                                  text: "Informiert dich auch bei gesperrtem Bildschirm, wenn sich während einer Fahrt die Durchfahrtszeit an der Schranke deutlich ändert.")
                 }
                 .padding(.horizontal, 16)
             }

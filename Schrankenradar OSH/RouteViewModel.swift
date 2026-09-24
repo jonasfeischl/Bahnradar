@@ -883,6 +883,14 @@ final class RouteViewModel: NSObject {
               let firstHit = matchesByRoute[index].first,
               let event = firstHit.event else { return }
 
+        // openInMaps(_:) ruft startTrip() bei JEDEM Weiterleiten-Tap auf — tippt der Nutzer z.B.
+        // erst Apple Maps und danach (gleiche oder neu berechnete Route) Google Maps, würde ohne
+        // dieses Aufräumen die vorherige Live Activity referenzlos und dauerhaft auf dem
+        // Sperrbildschirm hängen bleiben, statt sauber beendet zu werden.
+        if isTripActive {
+            endCurrentActivity()
+        }
+
         monitoredCrossing = firstHit.crossing
         monitoredEventId = event.id
         baselineCrossingTime = event.estimatedCrossingTime
@@ -906,7 +914,10 @@ final class RouteViewModel: NSObject {
                 await self?.checkForSignificantChange()
             }
         }
-        Task { await requestNotificationPermissionIfNeeded() }
+        // Normalerweise längst beim Onboarding entschieden (siehe PermissionRequester.requestAll)
+        // — dieser Aufruf ist nur noch das Sicherheitsnetz für "Später" übersprungene Sequenzen
+        // oder Alt-Installationen ohne die dritte Berechtigungszeile.
+        Task { await PermissionRequester.requestNotifications() }
     }
 
     func stopTrip() {
@@ -919,10 +930,7 @@ final class RouteViewModel: NSObject {
         currentBannerMessage = nil
         tripStartedAt = nil
         currentTripEtaSeconds = nil
-
-        let activityToEnd = currentActivity
-        currentActivity = nil
-        Task { await activityToEnd?.end(nil, dismissalPolicy: .immediate) }
+        endCurrentActivity()
 
         if let destinationName = currentTripDestinationName {
             let record = TripRecord(
@@ -951,6 +959,12 @@ final class RouteViewModel: NSObject {
         currentActivity = try? Activity.request(attributes: attributes, content: content, pushType: nil)
     }
 
+    private func endCurrentActivity() {
+        let activityToEnd = currentActivity
+        currentActivity = nil
+        Task { await activityToEnd?.end(nil, dismissalPolicy: .immediate) }
+    }
+
     /// `etaText` zählt linear ab der ursprünglich berechneten Fahrzeit runter (keine echte
     /// GPS-Live-Verfolgung — die App navigiert ja bewusst nicht selbst, siehe RouteView-Kontext)
     /// statt stehenzubleiben; für eine grobe Orientierung auf dem Sperrbildschirm reicht das.
@@ -965,16 +979,6 @@ final class RouteViewModel: NSObject {
             etaText: etaText,
             isBlocked: status != nil && status != .open
         )
-    }
-
-    /// Erst beim ersten echten Fahrtstart angefragt statt schon im allgemeinen Onboarding —
-    /// gleiches Prinzip wie das bestehende "Immer"-Standort-Upgrade (siehe LocationMonitor):
-    /// im Kontext angefragt, in dem der Mehrwert erkennbar ist, statt pauschal vorab.
-    private func requestNotificationPermissionIfNeeded() async {
-        let center = UNUserNotificationCenter.current()
-        let settings = await center.notificationSettings()
-        guard settings.authorizationStatus == .notDetermined else { return }
-        _ = try? await center.requestAuthorization(options: [.alert, .sound])
     }
 
     private func checkForSignificantChange() async {
