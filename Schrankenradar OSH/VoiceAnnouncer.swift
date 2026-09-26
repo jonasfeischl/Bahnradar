@@ -109,13 +109,33 @@ final class VoiceAnnouncer: NSObject {
         }
     }
 
+    /// Modus/Optionen laut Apples eigener Doku für exakt unseren Fall gewählt (AVAudioSessionTypes.h):
+    /// `.spokenAudio` (vorher hier gesetzt) ist explizit für Apps gedacht, die BEI EINER
+    /// Navigations-App-Ansage selbst pausiert werden wollen (Podcasts/Hörbücher) — also genau
+    /// verkehrt herum für uns. `.voicePrompt` ist wörtlich als Beispiel "a turn by turn
+    /// navigation app that plays short prompts" dokumentiert, in Kombination mit `.duckOthers` UND
+    /// `.interruptSpokenAudioAndMixWithOthers` (von Apple direkt so empfohlen) — Letzteres
+    /// unterbricht fremde `.spokenAudio`-Sessions statt sie nur leiser zu drehen, verhindert also
+    /// echtes Überlappen zweier Stimmen (Nutzer-Report: "Sprachansagen kollidieren" mit Apple/
+    /// Google Maps).
     private func configureAudioSession() {
         try? AVAudioSession.sharedInstance().setCategory(
             .playback,
-            mode: .spokenAudio,
-            options: [.duckOthers, .allowBluetoothHFP, .allowBluetoothA2DP]
+            mode: .voicePrompt,
+            options: [.duckOthers, .interruptSpokenAudioAndMixWithOthers, .allowBluetoothHFP, .allowBluetoothA2DP]
         )
         try? AVAudioSession.sharedInstance().setActive(true)
+    }
+
+    /// Sowohl Ducking als auch Interrupt fremder Sessions gelten laut Doku, SOLANGE unsere Session
+    /// aktiv ist — NICHT nur während wir tatsächlich Ton ausgeben. Ohne dieses Deaktivieren bliebe
+    /// z.B. Apple/Google Maps ab der ersten eigenen Ansage für den Rest der Fahrt leiser/pausiert,
+    /// weit über die paar Sekunden der eigentlichen Ansage hinaus (genau das beobachtete
+    /// "kollidieren", bzw. danach dauerhaft zu leise). `.notifyOthersOnDeactivation` gibt der
+    /// unterbrochenen App das Signal, ihre Wiedergabe/Lautstärke selbst wiederherzustellen.
+    private func deactivateAudioSessionIfIdle() {
+        guard !isSpeaking, pendingSpeak.isEmpty else { return }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     func announce(status: CrossingStatus, nextEvent: CrossingEvent?, crossingName: String = "") {
@@ -215,12 +235,20 @@ final class VoiceAnnouncer: NSObject {
     /// falls eine wartet.
     private func finishedSpeaking() {
         isSpeaking = false
-        guard !pendingSpeak.isEmpty else { return }
+        guard !pendingSpeak.isEmpty else {
+            deactivateAudioSessionIfIdle()
+            return
+        }
         let next = pendingSpeak.removeFirst()
         startSpeaking(parts: next.parts, pauseBeforeIndices: next.pauseBeforeIndices, emphasizeIndices: next.emphasizeIndices)
     }
 
     private func speakWithSystemVoice(_ text: String) {
+        // Erst hier (statt schon in startSpeaking) reaktivieren — die neuronale Synthese davor
+        // kann bis zu ~1s dauern (CNN-Inferenz), in der noch gar kein Ton läuft. Würde die Session
+        // schon vorher aktiviert, wäre Apple/Google Maps auch während dieser stillen Denkzeit
+        // unnötig gedreht/unterbrochen statt nur während der tatsächlichen Ansage.
+        configureAudioSession()
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = bestGermanVoice()
         utterance.rate = 0.48
@@ -230,6 +258,7 @@ final class VoiceAnnouncer: NSObject {
     }
 
     private func playNeuralAudio(_ wavData: Data) {
+        configureAudioSession()
         neuralPlayer = try? AVAudioPlayer(data: wavData)
         neuralPlayer?.delegate = self
         // Ohne prepareToPlay() ist die Audio-Hardware beim ersten play() noch

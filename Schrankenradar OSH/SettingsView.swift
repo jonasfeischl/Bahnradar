@@ -8,9 +8,6 @@ struct SettingsView: View {
 
     @AppStorage("voiceEnabled") private var voiceEnabled: Bool = true
     @AppStorage("permissionsDeferred") private var permissionsDeferred = false
-    /// Gleicher Key wie im Onboarding (OnboardingWaechterScreen) — dort einmalig gewählt,
-    /// hier jederzeit revidierbar.
-    @AppStorage("waechterEnabled") private var waechterEnabled = true
     @State private var showDeleteConfirmation = false
     @State private var showHelp = false
     @State private var isRequestingPermissions = false
@@ -165,15 +162,10 @@ struct SettingsView: View {
                     Text("Lerndaten")
                 }
 
-                // MARK: Wächter — an-/abwählbar, gleicher Key wie im Onboarding
-                // (OnboardingWaechterScreen), damit die dortige Wahl hier jederzeit revidierbar ist.
-                Section {
-                    Toggle("Wächter-Tab anzeigen", isOn: $waechterEnabled)
-                } header: {
-                    Text("Wächter")
-                } footer: {
-                    Text("Zeigt den „Wächter“-Tab mit Rängen, XP und Wochen-Statistik für deine Meldungen.")
-                }
+                // Wächter-Sektion (Tab-Toggle) hier rausgenommen, solange der Tab selbst weg ist
+                // (siehe Schrankenradar_OSHApp.swift) — ein Toggle ohne zugehörigen Tab wäre
+                // wirkungslos. waechterEnabled-Key bewusst nicht mehr referenziert, kann bei
+                // Wiedereinbau des Tabs 1:1 zurückkommen.
 
                 // MARK: Admin (versteckt, siehe adminUnlocked-Kommentar oben) — hier kommen
                 // laut Ankündigung künftig weitere Admin-Features dazu, nicht nur Diagnose.
@@ -211,10 +203,16 @@ struct SettingsView: View {
                         )) {
                             Label("Fahrt simulieren (Test)", systemImage: "car.fill")
                         }
+
+                        NavigationLink {
+                            AdminNotesView()
+                        } label: {
+                            Label("Notizen", systemImage: "note.text")
+                        }
                     } header: {
                         Text("Admin")
                     } footer: {
-                        Text("Diagnose-Log protokolliert DB-Fahrplan-Abrufe, Geops-Live-GPS und die Berechnung der Durchfahrtszeit. Bei einem Problem: hier öffnen, „Kopieren“ tippen und den Text weitergeben.\n\nMetricKit beobachtet Hangs/Crashes im Hintergrund, auch unterwegs ohne Mac — nur solange aktiv, wie du es hier eingeschaltet lässt. Landet ebenfalls im Diagnose-Log.\n\n„Fahrt simulieren“ erzwingt isDriving=true unabhängig von Bewegung&Fitness/GPS — zum Testen von „Bahnradar jetzt aktiv“ (beim Einschalten) und „Hintergrundmodus aktiv“ (beim Verlassen der App), ohne wirklich zu fahren.")
+                        Text("Diagnose-Log protokolliert DB-Fahrplan-Abrufe, Geops-Live-GPS und die Berechnung der Durchfahrtszeit. Bei einem Problem: hier öffnen, „Kopieren“ tippen und den Text weitergeben.\n\nMetricKit beobachtet Hangs/Crashes im Hintergrund, auch unterwegs ohne Mac — nur solange aktiv, wie du es hier eingeschaltet lässt. Landet ebenfalls im Diagnose-Log.\n\n„Fahrt simulieren“ erzwingt isDriving=true unabhängig von Bewegung&Fitness/GPS — zum Testen von „Bahnradar jetzt aktiv“ (beim Einschalten) und „Hintergrundmodus aktiv“ (beim Verlassen der App), ohne wirklich zu fahren.\n\nNotizen: freier Merkzettel für offene To-Dos, nur auf diesem Gerät gespeichert.")
                     }
                 }
 

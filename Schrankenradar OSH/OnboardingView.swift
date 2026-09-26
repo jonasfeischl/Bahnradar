@@ -5,22 +5,20 @@ import SwiftUI
 struct OnboardingFlow: View {
     @Binding var isPresented: Bool
 
-    private enum Step { case welcome, waechter, permissions }
+    // Wächter-Schritt (Rang/Meldungen-Feature) rausgenommen, aber OnboardingWaechterScreen
+    // unten bewusst NICHT gelöscht — Feature ist nur geparkt, soll ggf. als späteres Update
+    // zurückkommen. Reaktivieren: Step-Case + der .waechter-Zweig unten wieder rein, siehe
+    // Git-Historie (Commit "Wächter-/Vergleich-Tab vorübergehend entfernt").
+    private enum Step { case welcome, permissions }
     @State private var step: Step = .welcome
 
     @AppStorage("permissionsDeferred") private var permissionsDeferred = false
-    @AppStorage("waechterEnabled") private var waechterEnabled = true
 
     var body: some View {
         Group {
             switch step {
             case .welcome:
                 OnboardingWelcomeScreen {
-                    withAnimation { step = .waechter }
-                }
-            case .waechter:
-                OnboardingWaechterScreen { wantsWaechter in
-                    waechterEnabled = wantsWaechter
                     withAnimation { step = .permissions }
                 }
             case .permissions:
@@ -88,7 +86,8 @@ private struct OnboardingWelcomeScreen: View {
     }
 }
 
-// MARK: - Screen 2: Wächter-Feature (Ränge/Meldungen) an- oder abwählen
+// MARK: - Screen 2 (aktuell NICHT in OnboardingFlow verdrahtet, siehe Step-Kommentar oben):
+// Wächter-Feature (Ränge/Meldungen) an- oder abwählen
 
 private struct OnboardingWaechterScreen: View {
     /// true = "Ja, dabei", false = "Nein danke" — steuert `waechterEnabled`, jederzeit in den

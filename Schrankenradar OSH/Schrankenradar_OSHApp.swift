@@ -25,12 +25,10 @@ struct Schrankenradar_OSHApp: App {
 
     @AppStorage("permissionsDeferred") private var permissionsDeferred = false
 
-    /// Gleicher Key wie SettingsView/HelpView — schaltet den 4. Tab "Vergleich" frei (siehe
-    /// dort für die Freischalt-Geste). Reagiert live, ohne App-Neustart.
-    @AppStorage("adminUnlocked") private var adminUnlocked = false
-    /// Gleicher Key wie im Onboarding (OnboardingWaechterScreen) und SettingsView — steuert ob
-    /// der "Wächter"-Tab überhaupt erscheint. Reagiert live, ohne App-Neustart.
-    @AppStorage("waechterEnabled") private var waechterEnabled = true
+    // Wächter- und Vergleich-Tab (samt "adminUnlocked"/"waechterEnabled"-Verdrahtung hier)
+    // vorübergehend rausgenommen, Feature-Dateien (WaechterView.swift, Rank*.swift,
+    // APIComparisonView.swift etc.) bleiben unverändert liegen für ein späteres Update — siehe
+    // project-schrankenradar-osh-Memory bzw. Git-Historie zum Wiedereinbau.
 
     /// Splash mit drehendem Radar-Logo, kurz beim Kaltstart über allem sichtbar. Läuft
     /// über einen eigenen, unabhängigen Timer statt in der Sequenz unten — die kann durch
@@ -74,13 +72,6 @@ struct Schrankenradar_OSHApp: App {
                             Label("Schranke", systemImage: "record.circle")
                         }
 
-                    if waechterEnabled {
-                        WaechterView()
-                            .tabItem {
-                                Label("Wächter", systemImage: "shield.fill")
-                            }
-                    }
-
                     RouteView(routeViewModel: routeViewModel, locationMonitor: locationMonitor)
                         .tabItem {
                             Label("Fahrt", systemImage: "signpost.right.and.left.fill")
@@ -92,14 +83,6 @@ struct Schrankenradar_OSHApp: App {
                             Label("Einstellungen", systemImage: "gearshape.fill")
                         }
 
-                    // Nur sichtbar nach Admin-Login (siehe adminUnlocked oben) — Rohdaten-
-                    // Vergleich der drei APIs, nichts für normale Nutzer.
-                    if adminUnlocked {
-                        APIComparisonView()
-                            .tabItem {
-                                Label("Vergleich", systemImage: "chart.bar.doc.horizontal")
-                            }
-                    }
                 }
                 // Fahrterkennung + isDriving/isNearCrossing-Sync bewusst hier auf Tab-View-Ebene
                 // statt in ContentView — lief vorher nur auf dem Radar-Tab, weil ContentViews
@@ -203,17 +186,11 @@ struct Schrankenradar_OSHApp: App {
                 .fullScreenCover(isPresented: $showOnboarding) {
                     OnboardingFlow(isPresented: $showOnboarding)
                 }
-                // App-weit statt tab-lokal, aus demselben Grund wie routeViewModel oben: eine
-                // Meldung (und damit ein möglicher Rang-Aufstieg) kann auf jedem Tab abgegeben
-                // werden, die Feier muss also von hier aus erreichbar sein. Eine echte Kollision
-                // mit dem Onboarding-Cover ist strukturell ausgeschlossen — der Onboarding-Task
-                // oben blockiert jede Meldung, bis er durchgelaufen ist.
-                .fullScreenCover(item: Binding(
-                    get: { RankTracker.shared.pendingRankUp },
-                    set: { if $0 == nil { RankTracker.shared.consumeRankUpEvent() } }
-                )) { rank in
-                    RankUpCelebrationView(rank: rank) { RankTracker.shared.consumeRankUpEvent() }
-                }
+                // Rang-Aufstiegs-Feier (RankUpCelebrationView) hier ebenfalls rausgenommen,
+                // solange der Wächter-Tab weg ist — ohne den Tab, der Ränge überhaupt erklärt,
+                // wäre eine plötzliche "Rang aufgestiegen"-Vollbild-Feier kontextlos. RankTracker
+                // zählt im Hintergrund unverändert weiter (siehe FeedbackLearner), pendingRankUp
+                // sammelt sich nur an, bis dieser Block eines Tages zurückkommt.
 
                 if showLaunchScreen {
                     LaunchScreenView()
