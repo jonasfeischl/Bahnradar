@@ -277,13 +277,13 @@ final class CrossingRecorder {
 
     private func postCalibrationIfReady() {
         // Ab der ersten Messung sofort kalibrieren (minSamples: 1)
-        let munichOffset   = calibratedClosingOffset(toMunich: true,  minSamples: 1)
+        let munichOffset   = calibratedClosingOffset(toMunich: true, minSamples: 1)
         let freisingOffset = calibratedClosingOffset(toMunich: false, minSamples: 1)
         guard munichOffset != nil || freisingOffset != nil else { return }
 
         let count = records.filter { $0.measuredClosingOffset != nil }.count
         var info: [String: Any] = ["crossingId": crossingId, "count": count]
-        if let m = munichOffset   { info["munichOffset"]   = m }
+        if let m = munichOffset { info["munichOffset"]   = m }
         if let f = freisingOffset { info["freisingOffset"] = f }
 
         NotificationCenter.default.post(

@@ -79,7 +79,7 @@ final class VoiceAnnouncer: NSObject {
     /// solange sie nicht komplett neu gestartet wird.
     private func bestGermanVoice() -> AVSpeechSynthesisVoice? {
         let germanVoices = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("de") }
-        if let premium  = germanVoices.first(where: { $0.quality == .premium })  { return premium }
+        if let premium  = germanVoices.first(where: { $0.quality == .premium }) { return premium }
         if let enhanced = germanVoices.first(where: { $0.quality == .enhanced }) { return enhanced }
         return AVSpeechSynthesisVoice(language: "de-DE")
     }
@@ -296,10 +296,7 @@ final class VoiceAnnouncer: NSObject {
             let minutes = Int(event.minutesUntil)
             let seconds = Int(event.minutesUntil * 60)
             let zeitText: String
-            if minutes >= 2         { zeitText = "in \(minutes) Minuten" }
-            else if minutes == 1    { zeitText = "in einer Minute" }
-            else if seconds == 1    { zeitText = "in einer Sekunde" }
-            else                    { zeitText = "in \(seconds) Sekunden" }
+            if minutes >= 2 { zeitText = "in \(minutes) Minuten" } else if minutes == 1 { zeitText = "in einer Minute" } else if seconds == 1 { zeitText = "in einer Sekunde" } else { zeitText = "in \(seconds) Sekunden" }
             parts.append("Nächster Zug \(zeitText).")
         }
 

@@ -133,7 +133,10 @@ struct SchrankenModeView: View {
                 FeatureIntroScreen(
                     icon: "record.circle",
                     title: "Schranken-Modus",
-                    message: "Hier zeichnest du live auf, wann eine Schranke schließt und wieder öffnet. Drücke „Schranke ZU“ sobald du sie live schließen siehst, und „Schranke AUF“ sobald sie wieder öffnet. Aus diesen echten Messungen lernt die App und wird für alle genauer.\n\nDamit die Daten stimmen, funktioniert der Schranken-Modus nur, wenn du dich wirklich in der Nähe der Schranke befindest."
+                    message: "Hier zeichnest du live auf, wann eine Schranke schließt und wieder öffnet. " +
+                             "Drücke „Schranke ZU“ sobald du sie live schließen siehst, und „Schranke AUF“ sobald sie wieder öffnet. " +
+                             "Aus diesen echten Messungen lernt die App und wird für alle genauer.\n\n" +
+                             "Damit die Daten stimmen, funktioniert der Schranken-Modus nur, wenn du dich wirklich in der Nähe der Schranke befindest."
                 ) {
                     hasSeenSchrankenModeIntro = true
                     showIntro = false
@@ -216,7 +219,10 @@ struct SchrankenModeView: View {
                     Label("Warum nur vor Ort?", systemImage: "checkmark.shield.fill")
                         .font(.subheadline.bold())
                         .foregroundStyle(Color.brand)
-                    Text("Der Schranken-Modus funktioniert nur direkt an der Schranke (im Umkreis von \(Int(Self.presenceRadius))m). So bleiben die Messungen echt — niemand kann aus der Ferne falsche Aufzeichnungen einspeisen und die geteilten Daten für alle verfälschen.")
+                    Text(
+                        "Der Schranken-Modus funktioniert nur direkt an der Schranke (im Umkreis von \(Int(Self.presenceRadius))m). " +
+                        "So bleiben die Messungen echt — niemand kann aus der Ferne falsche Aufzeichnungen einspeisen und die geteilten Daten für alle verfälschen."
+                    )
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -347,11 +353,10 @@ struct SchrankenModeView: View {
         }
     }
 
-
     // MARK: - Zugbestätigung
 
     @State private var confirmedEvents: Set<String> = []
-    @State private var lastMeasurement: MeasurementResult? = nil
+    @State private var lastMeasurement: MeasurementResult?
 
     struct MeasurementResult {
         let offsetSec: Double
@@ -478,7 +483,7 @@ struct SchrankenModeView: View {
         var crossing = viewModel.selectedCrossing
         var updated  = false
         // Ab der ersten Messung sofort kalibrieren
-        if let offset = recorder.calibratedClosingOffset(toMunich: true,  minSamples: 1) {
+        if let offset = recorder.calibratedClosingOffset(toMunich: true, minSamples: 1) {
             crossing.measuredOffsetToMunich = offset
             updated = true
         }

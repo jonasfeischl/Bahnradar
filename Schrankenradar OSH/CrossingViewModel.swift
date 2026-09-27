@@ -10,8 +10,8 @@ import WidgetKit
 final class CrossingViewModel {
     var nextEvents: [CrossingEvent] = []
     var isLoading = false
-    var errorMessage: String? = nil
-    var lastUpdated: Date? = nil
+    var errorMessage: String?
+    var lastUpdated: Date?
 
     var store: CrossingsStore = CrossingsStore()
     private var learners: [String: FeedbackLearner] = [:]
@@ -431,7 +431,7 @@ final class CrossingViewModel {
             var crossing = self.selectedCrossing
             if let m = note.userInfo?["munichOffset"]   as? Double { crossing.measuredOffsetToMunich   = m }
             if let f = note.userInfo?["freisingOffset"] as? Double { crossing.measuredOffsetToFreising = f }
-            if let c = note.userInfo?["count"]          as? Int    { crossing.gpsOffsetMeasurements   = c }
+            if let c = note.userInfo?["count"]          as? Int { crossing.gpsOffsetMeasurements   = c }
             self.store.update(crossing)
         }
 
@@ -602,13 +602,56 @@ final class CrossingViewModel {
 
         Task {
             await jsonBin.submitGPSOffset(
-                crossingId:    crossingId,
-                munichOffset:   toMunich ? offset : nil,
+                crossingId: crossingId,
+                munichOffset: toMunich ? offset : nil,
                 freisingOffset: toMunich ? nil : offset
             )
         }
     }
 
+    // Als gespeicherte Eigenschaften (stored properties) müssen diese in der Klasse selbst
+    // stehen, nicht in der extension unten (Swift-Regel: extensions dürfen keine gespeicherten
+    // Eigenschaften enthalten) — hierher verschoben, um die extension type-body-length-konform
+    // zu machen, ohne die Funktionen selbst zu verschieben.
+    private let service = TrainAPIService()
+    private var refreshTask: Task<Void, Never>?
+
+    // TEMPORÄRER HARDCODE (User-Anfrage 2026-07-19, nachjustiert 2026-07-20, 2026-07-25):
+    // Freising-Richtung an der Dachauer Str. war mit dem aktuell gelernten Offset konsistent
+    // ~3min zu früh (bestätigt per Live-GPS-Vergleich im Diagnose-Log), seit MVG-Integration
+    // nur noch 20s zu spät → `+175` auf `+155` reduziert. Nach dem GPS-Offset-Freeze für
+    // osh_dachauer (Basis jetzt stabil, siehe CrossingLocation.usesFrozenBase) erneuter
+    // Live-Test zeigte 40s zu spät → `+155` auf `+115` reduziert, danach 1min zu früh →
+    // `+115` auf `+135`. Danach durchgehend "immer 3min zu spät" (deutlich stärkeres Signal
+    // als die vorherigen ±20-40s-Wackler) — per Diagnose-Log geprüft: Offset stabil bei +35s,
+    // keine Merge-/Berechnungs-Anomalie. Wahrscheinliche Ursache: der Hardcode wurde
+    // ursprünglich (vor MVG-Integration) so groß gewählt, um DBs eigene, damals ungenaue
+    // Verspätung auszugleichen — seit MVG die Verspätung liefert, korrigiert das schon einen
+    // Großteil davon selbst, der alte Hardcode korrigiert seither doppelt. Um die vollen 180s
+    // reduziert: `+135` auf `-45`.
+    // TODO entfernen, sobald die Freising-Lerndaten sauber neu kalibriert sind
+    // (Einstellungen → Dachauer Str. → „Freising zurücksetzen" + neue Messungen).
+    private let dachauerFreisingHardcode: Double = -45
+
+    // TEMPORÄRER HARDCODE (User-Anfrage 2026-07-19, nachjustiert 2026-07-20):
+    // München-Richtung an der Dachauer Str. soll 1min SPÄTER angezeigt werden, da die Schranke
+    // ca. 1min nach der Station liegt (Live-Vergleich, jetzt exakt). War zuvor `-40`, macht
+    // +60s Korrektur also `+20`.
+    // TODO entfernen, sobald die München-Lerndaten sauber neu kalibriert sind
+    // (Einstellungen → Dachauer Str. → „München zurücksetzen" + neue Messungen).
+    private let dachauerMunichHardcode: Double = 20
+
+    /// Throttling für den CALC-Log: verhindert Log-Spam bei jedem Rebuild (alle paar Sekunden) —
+    /// nur loggen wenn sich der Inhalt geändert hat oder der letzte Log für diesen Zug > 20s her ist.
+    private var lastCalcLog: [String: (at: Date, text: String)] = [:]
+
+    // S-Bahn ~4 Wagen × 50m = 200m bei ~80 km/h (22 m/s) → ~9 Sekunden Durchfahrtszeit
+    private let trainPassageDurationSeconds: Double = 9.0
+}
+
+// Ausgelagert in eine extension, damit die primäre Typdeklaration unter dem SwiftLint-
+// Längenlimit bleibt (type_body_length) — reine Code-Organisation, keine Verhaltensänderung.
+extension CrossingViewModel {
     // MARK: - Kalman-Filter (1D stationäres Modell)
 
     /// Ein Kalman-Filter Update Schritt.
@@ -681,9 +724,6 @@ final class CrossingViewModel {
         learners[crossingId] = new
         return new
     }
-    private let service = TrainAPIService()
-    private var refreshTask: Task<Void, Never>?
-
     var selectedCrossing: CrossingLocation { store.selected }
 
     /// Vollständiger Start: Geops verbinden + DB-Fetch + Cloud-Sync.
@@ -745,7 +785,7 @@ final class CrossingViewModel {
             .min()
 
         guard let minutes = nextMinutes else { return 60 }
-        if minutes < 3  { return 10 }
+        if minutes < 3 { return 10 }
         if minutes < 10 { return 20 }
         return 60
     }
@@ -796,9 +836,9 @@ final class CrossingViewModel {
             saveSelectedCrossingForWidget()
 
             if let next = nextEvents.first(where: { $0.minutesUntil > 0 }) {
-                UserDefaults.standard.set(next.train.lineName,               forKey: "nextTrain_line_\(id)")
-                UserDefaults.standard.set(next.train.direction,              forKey: "nextTrain_direction_\(id)")
-                UserDefaults.standard.set(next.estimatedCrossingTime,        forKey: "nextTrain_time_\(id)")
+                UserDefaults.standard.set(next.train.lineName, forKey: "nextTrain_line_\(id)")
+                UserDefaults.standard.set(next.train.direction, forKey: "nextTrain_direction_\(id)")
+                UserDefaults.standard.set(next.estimatedCrossingTime, forKey: "nextTrain_time_\(id)")
             } else {
                 UserDefaults.standard.removeObject(forKey: "nextTrain_line_\(id)")
                 UserDefaults.standard.removeObject(forKey: "nextTrain_direction_\(id)")
@@ -831,33 +871,9 @@ final class CrossingViewModel {
         return buildEvents(from: trains, for: crossing, regionalEntries: regionalEntries, applyStabilization: false)
     }
 
-    // TEMPORÄRER HARDCODE (User-Anfrage 2026-07-19, nachjustiert 2026-07-20, 2026-07-25):
-    // Freising-Richtung an der Dachauer Str. war mit dem aktuell gelernten Offset konsistent
-    // ~3min zu früh (bestätigt per Live-GPS-Vergleich im Diagnose-Log), seit MVG-Integration
-    // nur noch 20s zu spät → `+175` auf `+155` reduziert. Nach dem GPS-Offset-Freeze für
-    // osh_dachauer (Basis jetzt stabil, siehe CrossingLocation.usesFrozenBase) erneuter
-    // Live-Test zeigte 40s zu spät → `+155` auf `+115` reduziert, danach 1min zu früh →
-    // `+115` auf `+135`. Danach durchgehend "immer 3min zu spät" (deutlich stärkeres Signal
-    // als die vorherigen ±20-40s-Wackler) — per Diagnose-Log geprüft: Offset stabil bei +35s,
-    // keine Merge-/Berechnungs-Anomalie. Wahrscheinliche Ursache: der Hardcode wurde
-    // ursprünglich (vor MVG-Integration) so groß gewählt, um DBs eigene, damals ungenaue
-    // Verspätung auszugleichen — seit MVG die Verspätung liefert, korrigiert das schon einen
-    // Großteil davon selbst, der alte Hardcode korrigiert seither doppelt. Um die vollen 180s
-    // reduziert: `+135` auf `-45`.
-    // TODO entfernen, sobald die Freising-Lerndaten sauber neu kalibriert sind
-    // (Einstellungen → Dachauer Str. → „Freising zurücksetzen" + neue Messungen).
-    private let dachauerFreisingHardcode: Double = -45
-
-    // TEMPORÄRER HARDCODE (User-Anfrage 2026-07-19, nachjustiert 2026-07-20):
-    // München-Richtung an der Dachauer Str. soll 1min SPÄTER angezeigt werden, da die Schranke
-    // ca. 1min nach der Station liegt (Live-Vergleich, jetzt exakt). War zuvor `-40`, macht
-    // +60s Korrektur also `+20`.
-    // TODO entfernen, sobald die München-Lerndaten sauber neu kalibriert sind
-    // (Einstellungen → Dachauer Str. → „München zurücksetzen" + neue Messungen).
-    private let dachauerMunichHardcode: Double = 20
-
     /// Gelernter Offset (Community/GPS-Basis + Feedback-Korrektur) plus die temporären
-    /// Dachauer-Str.-Hardcodes oben — EINZIGE Stelle, die diesen Wert berechnet. Wird sowohl
+    /// Dachauer-Str.-Hardcodes (siehe `dachauerFreisingHardcode`/`dachauerMunichHardcode` in der
+    /// Klassendeklaration oben) — EINZIGE Stelle, die diesen Wert berechnet. Wird sowohl
     /// von `buildEvents()` als auch von `saveSelectedCrossingForWidget()` genutzt: vorher
     /// berechnete Letzteres den Widget-Offset separat nur aus `bestOffset()`, OHNE Feedback-
     /// Korrektur und OHNE die Hardcodes — dadurch zeigte das Widget im Fallback-Fall (eigener
@@ -866,12 +882,12 @@ final class CrossingViewModel {
     private func finalOffset(for crossing: CrossingLocation, toMunich: Bool, at: Date) -> Double {
         let community = communityOffsets[crossing.id]
         let base = crossing.bestOffset(
-            toMunich:               toMunich,
-            communityMunich:        community?.munich,
-            communityMunichCount:   community?.munichCount ?? 0,
-            communityFreising:      community?.freising,
+            toMunich: toMunich,
+            communityMunich: community?.munich,
+            communityMunichCount: community?.munichCount ?? 0,
+            communityFreising: community?.freising,
             communityFreisingCount: community?.freisingCount ?? 0,
-            at:                     at
+            at: at
         )
         var offset = feedbackLearner(for: crossing.id).totalClosingOffset(base: base, toMunich: toMunich)
         if crossing.id == "osh_dachauer" {
@@ -971,10 +987,38 @@ final class CrossingViewModel {
         // gleiche Richtung + Durchfahrtszeit < 120s → derselbe Zug, Live-GPS-Eintrag gewinnt.
         events = dedupeCloseEvents(events)
 
-        // Güterzüge / Nicht-S-Bahn (RB, RE, …) via Geops-Echtzeit-GPS — werden wie normale
-        // Züge behandelt. Mehrere gleichzeitig anfahrende Nicht-S-Bahn-Züge am selben Übergang
-        // werden jetzt alle gezeigt (freightApproaches ist pro tripId geschlüsselt, siehe dort).
+        // Güterzüge / Nicht-S-Bahn (RB, RE, …) via Geops-Echtzeit-GPS sowie Regionalzüge über
+        // eine benachbarte Referenzstation (siehe CrossingLocation.regionalStationEVA) — beide
+        // Blöcke in gleichnamige Hilfsfunktionen ausgelagert (function_body_length), identische
+        // Logik, nur die Funktionsgrenze ist neu.
         let openingDelay = feedbackLearner(for: crossing.id).totalOpeningDelay
+        appendFreightApproaches(to: &events, crossing: crossing, openingDelay: openingDelay)
+        appendRegionalEntries(to: &events, regionalEntries: regionalEntries, crossing: crossing, openingDelay: openingDelay)
+
+        // Geglättete Zeiten/Verspätungs-Status für Züge löschen, die nicht mehr in der
+        // aktuellen Liste sind (sonst wachsen die Dictionaries unbegrenzt über den ganzen Tag).
+        // Nur beim stabilisierten (ausgewählten) Übergang: `trains` gehört hier zu `crossing`,
+        // nicht zwingend zum aktuell ausgewählten Übergang — ein Aufruf für einen ANDEREN
+        // Übergang (siehe fetchEvents(for:)) würde sonst die Glättungs-Dictionaries des
+        // ausgewählten Übergangs anhand einer fremden trains-Liste fälschlich leerräumen.
+        if applyStabilization {
+            let activeIds = Set(trains.map { $0.id })
+            smoothedCrossingTime   = smoothedCrossingTime.filter { activeIds.contains($0.key) }
+            acceptedDelayMinutes   = acceptedDelayMinutes.filter { activeIds.contains($0.key) }
+            pendingDelayReduction  = pendingDelayReduction.filter { activeIds.contains($0.key) }
+            pendingDelayIncrease   = pendingDelayIncrease.filter { activeIds.contains($0.key) }
+            liveLockedTrains       = liveLockedTrains.filter { activeIds.contains($0) }
+            lastLiveAt             = lastLiveAt.filter { activeIds.contains($0.key) }
+            lastCalcLog            = lastCalcLog.filter { activeIds.contains($0.key) }
+        }
+
+        return events.sorted { $0.estimatedCrossingTime < $1.estimatedCrossingTime }
+    }
+
+    /// Aus buildEvents() ausgelagert (function_body_length) — identische Logik. Mehrere
+    /// gleichzeitig anfahrende Nicht-S-Bahn-Züge am selben Übergang werden alle gezeigt
+    /// (freightApproaches ist pro tripId geschlüsselt, siehe dort).
+    private func appendFreightApproaches(to events: inout [CrossingEvent], crossing: CrossingLocation, openingDelay: TimeInterval) {
         let freightApproaches = GeopsRealtimeService.shared.freightApproaches.values
             .filter { $0.crossingId == crossing.id }
         for freight in freightApproaches {
@@ -988,29 +1032,31 @@ final class CrossingViewModel {
             let dir: TrainDirection = freight.toMunich ? .toMunich : .toFreising
             let freightId = "freight_\(freight.tripId)"
             let freightDep = TrainDeparture(
-                id:               freightId,
-                lineName:         freight.lineName,
-                direction:        dir.label,
+                id: freightId,
+                lineName: freight.lineName,
+                direction: dir.label,
                 resolvedDirection: dir,
-                scheduledTime:    freight.crossingTime,
-                actualTime:       freight.crossingTime,
-                delayMinutes:     0,
-                isArrival:        false
+                scheduledTime: freight.crossingTime,
+                actualTime: freight.crossingTime,
+                delayMinutes: 0,
+                isArrival: false
             )
             events.append(CrossingEvent(
-                id:                    freightId,
-                train:                 freightDep,
+                id: freightId,
+                train: freightDep,
                 estimatedCrossingTime: freight.crossingTime,
-                openingDelayMinutes:   openingDelay / 60,
-                isLiveData:            true   // Güterzug/RB/RE kommt immer aus Geops-Echtzeit-GPS
+                openingDelayMinutes: openingDelay / 60,
+                isLiveData: true   // Güterzug/RB/RE kommt immer aus Geops-Echtzeit-GPS
             ))
         }
+    }
 
-        // Regionalzüge (RE/RB) über eine benachbarte Referenzstation (siehe
-        // CrossingLocation.regionalStationEVA) — für Übergänge wie OSH, deren eigene stationEVA
-        // strukturell nie RE/RB führt (reine S-Bahn-Station, siehe Kommentar dort). Gleiche
-        // Struktur wie der Güterzug-Block oben, aber DB-Fahrplan-basiert (cachedRegionalEntries)
-        // statt Geops-GPS-basiert — daher isLiveData: false (keine Live-Bestätigung).
+    /// Aus buildEvents() ausgelagert (function_body_length) — identische Logik. Für Übergänge
+    /// wie OSH, deren eigene stationEVA strukturell nie RE/RB führt (reine S-Bahn-Station,
+    /// siehe Kommentar bei CrossingLocation.regionalStationEVA). Gleiche Struktur wie
+    /// appendFreightApproaches, aber DB-Fahrplan-basiert (cachedRegionalEntries) statt
+    /// Geops-GPS-basiert — daher isLiveData: false (keine Live-Bestätigung).
+    private func appendRegionalEntries(to events: inout [CrossingEvent], regionalEntries: [TrainEntry], crossing: CrossingLocation, openingDelay: TimeInterval) {
         for entry in regionalEntries where !entry.isCancelled {
             let toMunichRegional = entry.direction == .toMunich
             let regionalOffset = toMunichRegional ? crossing.regionalOffsetToMunich
@@ -1026,50 +1072,27 @@ final class CrossingViewModel {
             else { continue }
             let regionalId = "regional_\(entry.id)"
             let regionalDep = TrainDeparture(
-                id:                   regionalId,
-                lineName:             entry.lineName,
-                direction:            entry.direction.label,
-                resolvedDirection:    entry.direction,
-                scheduledTime:        entry.scheduledTime,
-                actualTime:           entry.actualTime,
-                delayMinutes:         entry.delayMinutes,
-                isArrival:            false,
+                id: regionalId,
+                lineName: entry.lineName,
+                direction: entry.direction.label,
+                resolvedDirection: entry.direction,
+                scheduledTime: entry.scheduledTime,
+                actualTime: entry.actualTime,
+                delayMinutes: entry.delayMinutes,
+                isArrival: false,
                 finalDestinationHint: entry.finalDestinationHint
             )
             events.append(CrossingEvent(
-                id:                    regionalId,
-                train:                 regionalDep,
+                id: regionalId,
+                train: regionalDep,
                 estimatedCrossingTime: crossingTime,
-                openingDelayMinutes:   openingDelay / 60,
-                isLiveData:            false
+                openingDelayMinutes: openingDelay / 60,
+                isLiveData: false
             ))
         }
-
-        // Geglättete Zeiten/Verspätungs-Status für Züge löschen, die nicht mehr in der
-        // aktuellen Liste sind (sonst wachsen die Dictionaries unbegrenzt über den ganzen Tag).
-        // Nur beim stabilisierten (ausgewählten) Übergang: `trains` gehört hier zu `crossing`,
-        // nicht zwingend zum aktuell ausgewählten Übergang — ein Aufruf für einen ANDEREN
-        // Übergang (siehe fetchEvents(for:)) würde sonst die Glättungs-Dictionaries des
-        // ausgewählten Übergangs anhand einer fremden trains-Liste fälschlich leerräumen.
-        if applyStabilization {
-            let activeIds = Set(trains.map { $0.id })
-            smoothedCrossingTime   = smoothedCrossingTime.filter   { activeIds.contains($0.key) }
-            acceptedDelayMinutes   = acceptedDelayMinutes.filter   { activeIds.contains($0.key) }
-            pendingDelayReduction  = pendingDelayReduction.filter  { activeIds.contains($0.key) }
-            pendingDelayIncrease   = pendingDelayIncrease.filter   { activeIds.contains($0.key) }
-            liveLockedTrains       = liveLockedTrains.filter       { activeIds.contains($0) }
-            lastLiveAt             = lastLiveAt.filter             { activeIds.contains($0.key) }
-            lastCalcLog            = lastCalcLog.filter            { activeIds.contains($0.key) }
-        }
-
-        return events.sorted { $0.estimatedCrossingTime < $1.estimatedCrossingTime }
     }
 
     // MARK: - Diagnose-Log für die Zeitberechnung
-
-    /// Throttling für den CALC-Log: verhindert Log-Spam bei jedem Rebuild (alle paar Sekunden) —
-    /// nur loggen wenn sich der Inhalt geändert hat oder der letzte Log für diesen Zug > 20s her ist.
-    private var lastCalcLog: [String: (at: Date, text: String)] = [:]
 
     /// Loggt für Züge in den nächsten 20 Minuten alle Zutaten der Zeitberechnung — DB-Basis,
     /// gelernter Offset, Geops-Zuordnung (Trip-Match ja/nein) und Live-GPS-Schätzung (falls
@@ -1102,9 +1125,6 @@ final class CrossingViewModel {
         guard let updated = lastUpdated else { return false }
         return !isLoading && Date().timeIntervalSince(updated) > 120
     }
-
-    // S-Bahn ~4 Wagen × 50m = 200m bei ~80 km/h (22 m/s) → ~9 Sekunden Durchfahrtszeit
-    private let trainPassageDurationSeconds: Double = 9.0
 
     /// Frühestmögliche Öffnungszeit nach Ende der aktuellen Zugkette.
     /// Berücksichtigt die physikalische Zugdurchfahrtsdauer.
@@ -1166,9 +1186,9 @@ final class CrossingViewModel {
         let hasOpening = upcoming.contains(where: { $0.status(at: date) == .opening })
 
         if hasClosed && hasWarning { return .closed }
-        if hasClosed               { return .closed }
+        if hasClosed { return .closed }
         if hasOpening && !hasWarning { return .opening }
-        if hasWarning              { return .warning }
+        if hasWarning { return .warning }
         return .open
     }
 
@@ -1289,35 +1309,35 @@ final class CrossingViewModel {
         guard let suite = UserDefaults(suiteName: "group.schrankenradar.osh") else { return }
         let c = selectedCrossing
 
-        suite.set(c.stationEVA,    forKey: "widget_stationEVA")
-        suite.set(c.name,          forKey: "widget_crossingName")
-        suite.set(c.subtitle,      forKey: "widget_crossingSubtitle")
-        suite.set(c.onlyS1,        forKey: "widget_onlyS1")
+        suite.set(c.stationEVA, forKey: "widget_stationEVA")
+        suite.set(c.name, forKey: "widget_crossingName")
+        suite.set(c.subtitle, forKey: "widget_crossingSubtitle")
+        suite.set(c.onlyS1, forKey: "widget_onlyS1")
         // Über finalOffset() statt bestOffset() direkt — sonst fehlten hier die Feedback-
         // Korrektur UND die Dachauer-Str.-Hardcodes, die buildEvents() für die App-Anzeige
         // anwendet. Das Widget nutzt diesen Wert nur als Fallback (eigener DB-Fetch, wenn der
         // unten geschriebene sharedEvents-Payload >12min alt ist) — ohne diesen Fix hätte der
         // Fallback an der Dachauer Str. bis zu ~155s von der App-Anzeige abgewichen.
         let now = Date()
-        suite.set(finalOffset(for: c, toMunich: true,  at: now), forKey: "widget_offsetToMunich")
+        suite.set(finalOffset(for: c, toMunich: true, at: now), forKey: "widget_offsetToMunich")
         suite.set(finalOffset(for: c, toMunich: false, at: now), forKey: "widget_offsetToFreising")
 
         // Geops-genaue Events für das Widget ablegen (Live-Zeiten + GPS-Offsets + Trajectory).
         // Das Widget nutzt diese primär und macht nur als Fallback einen eigenen DB-Fetch.
         let sharedEvents = nextEvents.prefix(12).map { event in
             SharedTrainEvent(
-                line:              event.train.lineName,
+                line: event.train.lineName,
                 directionIsMunich: event.train.resolvedDirection == .toMunich,
-                crossingTime:      event.estimatedCrossingTime,
-                delayMinutes:      event.train.delayMinutes
+                crossingTime: event.estimatedCrossingTime,
+                delayMinutes: event.train.delayMinutes
             )
         }
         let payload = SharedWidgetPayload(
-            crossingId:       c.id,
-            crossingName:     c.name,
+            crossingId: c.id,
+            crossingName: c.name,
             crossingSubtitle: c.subtitle,
-            generatedAt:      Date(),
-            events:           Array(sharedEvents)
+            generatedAt: Date(),
+            events: Array(sharedEvents)
         )
         if let data = try? JSONEncoder().encode(payload) {
             suite.set(data, forKey: SharedWidgetPayload.userDefaultsKey)

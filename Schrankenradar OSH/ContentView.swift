@@ -13,7 +13,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var now: Date = Date()
     @State private var showSidebar: Bool = false
-    @State private var lastHapticStatus: CrossingStatus? = nil
+    @State private var lastHapticStatus: CrossingStatus?
     @State private var isInitialized = false
     @State private var wasInBackground = false
     @State private var backgroundGraceTask: Task<Void, Never>?
@@ -214,6 +214,16 @@ struct ContentView: View {
         }
     }
 
+    // Als @State-Eigenschaft muss das im struct selbst stehen, nicht in der extension unten
+    // (Swift-Regel: extensions dürfen keine gespeicherten/property-wrapper-Eigenschaften
+    // enthalten) — hierher verschoben, um die extension type-body-length-konform zu machen,
+    // ohne die Funktionen selbst zu verschieben.
+    @State private var showAccuracyDetail = false
+}
+
+// Ausgelagert in eine extension, damit die primäre Typdeklaration unter dem SwiftLint-
+// Längenlimit bleibt (type_body_length) — reine Code-Organisation, keine Verhaltensänderung.
+extension ContentView {
     // MARK: - Subviews
 
     private var statusHeader: some View {
@@ -489,20 +499,18 @@ struct ContentView: View {
         let commFreising   = community?.freising != nil
 
         // Präzise: beide Richtungen aus eigenen Messungen kalibriert
-        if localMunich && localFreising                         { return .precise }
+        if localMunich && localFreising { return .precise }
         // Kalibriert: eine Richtung lokal ODER beide aus Community
-        if localMunich || localFreising                         { return .calibrated }
-        if commMunich && commFreising                           { return .calibrated }
+        if localMunich || localFreising { return .calibrated }
+        if commMunich && commFreising { return .calibrated }
         // Lernend: Community-Daten für eine Richtung ODER manuelles Feedback
-        if commMunich || commFreising                           { return .learning }
+        if commMunich || commFreising { return .learning }
         if feedback.feedbackCount > 0
             || feedback.communityVoteCount > 0
             || feedback.closingOffsetToMunich != 0
-            || feedback.closingOffsetToFreising != 0            { return .learning }
+            || feedback.closingOffsetToFreising != 0 { return .learning }
         return .estimate
     }
-
-    @State private var showAccuracyDetail = false
 
     /// Ob die NÄCHSTE relevante Vorhersage ein Zug ohne DB-Fahrplaneintrag ist (Güterzug/RE/RB,
     /// nur per Geops-Live-GPS erkannt, siehe buildEvents `isLiveData: true` für Nicht-S-Bahn-
@@ -606,9 +614,9 @@ struct ContentView: View {
                 }
 
                 Section("Korrekturen (Cloud)") {
-                    accuracyRow(label: "Allgemein",    value: offsetText(feedback.closingOffsetAdjustment), calibrated: feedback.closingOffsetAdjustment != 0)
-                    accuracyRow(label: "→ München",    value: offsetText(feedback.closingOffsetToMunich),   calibrated: feedback.closingOffsetToMunich != 0)
-                    accuracyRow(label: "→ Freising",   value: offsetText(feedback.closingOffsetToFreising), calibrated: feedback.closingOffsetToFreising != 0)
+                    accuracyRow(label: "Allgemein", value: offsetText(feedback.closingOffsetAdjustment), calibrated: feedback.closingOffsetAdjustment != 0)
+                    accuracyRow(label: "→ München", value: offsetText(feedback.closingOffsetToMunich), calibrated: feedback.closingOffsetToMunich != 0)
+                    accuracyRow(label: "→ Freising", value: offsetText(feedback.closingOffsetToFreising), calibrated: feedback.closingOffsetToFreising != 0)
                     accuracyRow(label: "Öffnungsverzögerung", value: offsetText(feedback.openingDelayAdjustment), calibrated: feedback.openingDelayAdjustment != 0)
                 }
 
@@ -792,7 +800,11 @@ struct ContentView: View {
             Label("Keine sicherheitsrelevante Anwendung", systemImage: "exclamationmark.triangle.fill")
                 .font(.caption.bold())
                 .foregroundStyle(.orange)
-            Text("Diese App liefert unverbindliche Schätzungen auf Basis von Fahrplan- und GPS-Daten. Sie ersetzt nicht die eigene Aufmerksamkeit und Vorsicht am Bahnübergang. Verlasse dich beim Überqueren ausschließlich auf die Schranken- und Signalanlage vor Ort, nicht auf diese App.")
+            Text(
+                "Diese App liefert unverbindliche Schätzungen auf Basis von Fahrplan- und GPS-Daten. " +
+                "Sie ersetzt nicht die eigene Aufmerksamkeit und Vorsicht am Bahnübergang. " +
+                "Verlasse dich beim Überqueren ausschließlich auf die Schranken- und Signalanlage vor Ort, nicht auf diese App."
+            )
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -840,7 +852,7 @@ struct TrainEventRow: View {
     let now: Date
     /// Aktuelle Auto-Fahrzeit zur Schranke (von TravelTimesCard), für den Haken/Ausrufezeichen
     /// unten. nil solange noch keine GPS-Position/Fahrzeit vorliegt — dann kein Icon.
-    var carETASeconds: TimeInterval? = nil
+    var carETASeconds: TimeInterval?
 
     /// true = du schaffst es noch vor Schließung, false = knapp/zu spät, nil = keine Aussage
     /// möglich (keine Fahrzeit bekannt) oder Zug schon durchgefahren.
@@ -1194,5 +1206,3 @@ struct FlowLayout: Layout {
         return rows
     }
 }
-
-

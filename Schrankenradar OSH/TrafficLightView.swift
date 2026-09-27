@@ -10,11 +10,11 @@ struct TrafficLightView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            light(color: .red,    active: status == .closed,
+            light(color: .red, active: status == .closed,
                   pulsing: status == .closed)
             light(color: .yellow, active: status == .warning || status == .opening,
                   pulsing: false)
-            light(color: .green,  active: status == .open,
+            light(color: .green, active: status == .open,
                   pulsing: false)
         }
         .padding(20)
@@ -22,7 +22,7 @@ struct TrafficLightView: View {
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .shadow(radius: 8)
         .animation(animated ? .easeInOut(duration: 0.4) : nil, value: status)
-        .onAppear  { startPulse() }
+        .onAppear { startPulse() }
         .onChange(of: status) { _, _ in startPulse() }
     }
 

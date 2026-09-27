@@ -11,7 +11,7 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
     /// MVG-Stations-ID (Format "de:09184:2000") für die bevorzugte Verspätungsquelle MVGService —
     /// ermittelt über https://www.mvg.de/api/bgw-pt/v3/locations?query=<Stationsname>. nil = keine
     /// MVG-Abdeckung bekannt, dann bleibt DBs Realtime-Changes-API alleinige Verspätungsquelle.
-    var mvgGlobalId: String? = nil
+    var mvgGlobalId: String?
     /// Ob MVG für diese Station Regionalzug-Daten (transportTypes=BAHN) führt — per
     /// Stationsmetadaten verifiziert (2026-07-20): Feldmoching hat `["BAHN","SBAHN","UBAHN",
     /// "BUS"]`, Oberschleißheim nur `["SBAHN","BUS"]`, also strukturell NIE BAHN-Daten. Ohne
@@ -29,7 +29,7 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
     /// hatte an einem kompletten Tag (Std. 05-22) 0 von 202 RE/RB-Einträgen; Unterschleißheim
     /// (8006688, nächster Regionalzug-Halt Richtung Freising/Landshut) dagegen zuverlässig RB33
     /// (~alle 2h). nil = keine separate Referenz nötig (z.B. Feldmoching, dort hält RB33 selbst).
-    var regionalStationEVA: String? = nil
+    var regionalStationEVA: String?
     /// Offset Abfahrt/Ankunft an regionalStationEVA → Übergang, analog zu offsetToMunich/
     /// -Freising aber relativ zur entfernteren Regional-Referenzstation. Grobschätzung
     /// (2026-09-09): aus echten RB33-Zeiten an Feldmoching UND Unterschleißheim (identische
@@ -68,7 +68,7 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
     var autoMeasurementsFreising: Int = 0
 
     // Kalman-Filter Kovarianz (Schätzungssicherheit); 100 = hohe Unsicherheit
-    var kalmanVarianceMunich:   Double = 100.0
+    var kalmanVarianceMunich: Double = 100.0
     var kalmanVarianceFreising: Double = 100.0
 
     // Tageszeit- UND wochentagsspezifische Offsets (Schlüssel z.B. "WD08"/"WE08", siehe
@@ -76,7 +76,7 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
     // S-Bahn-Taktung/Zugfolge am Wochenende oft spürbar unterscheidet und ein gemeinsamer
     // Stunden-Bucket (z.B. Samstag-08 + Montag-08 zusammen) die Kalman-Schätzung unnötig
     // verrauscht hätte.
-    var hourlyOffsetsMunich:   [String: Double] = [:]
+    var hourlyOffsetsMunich: [String: Double] = [:]
     var hourlyOffsetsFreising: [String: Double] = [:]
 
     /// True für Samstag/Sonntag (Calendar-Weekday 1=So, 7=Sa, kalenderunabhängig von der
@@ -115,9 +115,9 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
     /// Priorität: Tageszeit+Wochentag-GPS (≥3) > allg. GPS (≥3) > Community (≥3) > statisch.
     /// Ausnahme: osh_dachauer überspringt beide GPS-Stufen, siehe usesFrozenBase.
     func bestOffset(toMunich: Bool,
-                    communityMunich:      Double? = nil,
+                    communityMunich: Double? = nil,
                     communityMunichCount: Int     = 0,
-                    communityFreising:      Double? = nil,
+                    communityFreising: Double? = nil,
                     communityFreisingCount: Int     = 0,
                     at: Date?          = nil) -> Double {
         let hourlyKey: String? = at.map {
@@ -147,9 +147,9 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
     /// Quelle des aktuell genutzten Offsets für Anzeige in der UI.
     enum OffsetSource { case local, community, estimate }
     func offsetSource(toMunich: Bool,
-                      communityMunich:      Double? = nil,
+                      communityMunich: Double? = nil,
                       communityMunichCount: Int     = 0,
-                      communityFreising:      Double? = nil,
+                      communityFreising: Double? = nil,
                       communityFreisingCount: Int     = 0) -> OffsetSource {
         if toMunich {
             if !usesFrozenBase && autoMeasurementsMunich >= 3 && measuredOffsetToMunich != nil { return .local }
@@ -196,9 +196,6 @@ struct CrossingLocation: Identifiable, Codable, Equatable, Hashable {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
-    
-    
-    
     // MARK: - Alle bekannten Bahnübergänge
 
     static let all: [CrossingLocation] = [
@@ -371,12 +368,12 @@ final class CrossingsStore {
                 measuredOffsetToMunich: $0.measuredOffsetToMunich,
                 measuredOffsetToFreising: $0.measuredOffsetToFreising,
                 confirmedLines: $0.confirmedLines,
-                autoMeasurementsMunich:   $0.autoMeasurementsMunich,
+                autoMeasurementsMunich: $0.autoMeasurementsMunich,
                 autoMeasurementsFreising: $0.autoMeasurementsFreising,
-                kalmanVarianceMunich:     $0.kalmanVarianceMunich,
-                kalmanVarianceFreising:   $0.kalmanVarianceFreising,
-                hourlyOffsetsMunich:      $0.hourlyOffsetsMunich.isEmpty ? nil : $0.hourlyOffsetsMunich,
-                hourlyOffsetsFreising:    $0.hourlyOffsetsFreising.isEmpty ? nil : $0.hourlyOffsetsFreising
+                kalmanVarianceMunich: $0.kalmanVarianceMunich,
+                kalmanVarianceFreising: $0.kalmanVarianceFreising,
+                hourlyOffsetsMunich: $0.hourlyOffsetsMunich.isEmpty ? nil : $0.hourlyOffsetsMunich,
+                hourlyOffsetsFreising: $0.hourlyOffsetsFreising.isEmpty ? nil : $0.hourlyOffsetsFreising
             ))
         })
         if let data = try? JSONEncoder().encode(settings) {

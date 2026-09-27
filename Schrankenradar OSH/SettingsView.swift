@@ -42,7 +42,11 @@ struct SettingsView: View {
                 if permissionsDeferred {
                     Section {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("Die App braucht zwei Berechtigungen, um dich automatisch zu warnen: Standort (wechselt zum nächsten Bahnübergang in deiner Nähe — bei der zweiten Standort-Abfrage bitte „Immer erlauben“ wählen, sonst funktionieren Sprachwarnungen nicht bei gesperrtem Bildschirm) und Bewegung & Fitness (erkennt Autofahrten für Sprachansagen).")
+                            Text(
+                                "Die App braucht zwei Berechtigungen, um dich automatisch zu warnen: Standort (wechselt zum nächsten Bahnübergang in deiner Nähe — " +
+                                "bei der zweiten Standort-Abfrage bitte „Immer erlauben“ wählen, sonst funktionieren Sprachwarnungen nicht bei gesperrtem Bildschirm) " +
+                                "und Bewegung & Fitness (erkennt Autofahrten für Sprachansagen)."
+                            )
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
@@ -212,7 +216,15 @@ struct SettingsView: View {
                     } header: {
                         Text("Admin")
                     } footer: {
-                        Text("Diagnose-Log protokolliert DB-Fahrplan-Abrufe, Geops-Live-GPS und die Berechnung der Durchfahrtszeit. Bei einem Problem: hier öffnen, „Kopieren“ tippen und den Text weitergeben.\n\nMetricKit beobachtet Hangs/Crashes im Hintergrund, auch unterwegs ohne Mac — nur solange aktiv, wie du es hier eingeschaltet lässt. Landet ebenfalls im Diagnose-Log.\n\n„Fahrt simulieren“ erzwingt isDriving=true unabhängig von Bewegung&Fitness/GPS — zum Testen von „Bahnradar jetzt aktiv“ (beim Einschalten) und „Hintergrundmodus aktiv“ (beim Verlassen der App), ohne wirklich zu fahren.\n\nNotizen: freier Merkzettel für offene To-Dos, nur auf diesem Gerät gespeichert.")
+                        Text(
+                            "Diagnose-Log protokolliert DB-Fahrplan-Abrufe, Geops-Live-GPS und die Berechnung der Durchfahrtszeit. " +
+                            "Bei einem Problem: hier öffnen, „Kopieren“ tippen und den Text weitergeben.\n\n" +
+                            "MetricKit beobachtet Hangs/Crashes im Hintergrund, auch unterwegs ohne Mac — nur solange aktiv, wie du es hier eingeschaltet lässt. " +
+                            "Landet ebenfalls im Diagnose-Log.\n\n" +
+                            "„Fahrt simulieren“ erzwingt isDriving=true unabhängig von Bewegung&Fitness/GPS — " +
+                            "zum Testen von „Bahnradar jetzt aktiv“ (beim Einschalten) und „Hintergrundmodus aktiv“ (beim Verlassen der App), ohne wirklich zu fahren.\n\n" +
+                            "Notizen: freier Merkzettel für offene To-Dos, nur auf diesem Gerät gespeichert."
+                        )
                     }
                 }
 
@@ -258,7 +270,7 @@ struct SettingsView: View {
         meters >= 1000 ? "\(Int(meters / 1000)) km" : "\(Int(meters))m"
     }
 
-    private func testVoice() {
+    func testVoice() {
         let status = viewModel.worstUpcomingStatus
         let next = viewModel.nextEvents.first { $0.minutesUntil > 0 }
         voiceAnnouncer.announce(status: status, nextEvent: next,
@@ -648,7 +660,9 @@ struct HelpView: View {
                     icon: "record.circle",
                     color: .red,
                     title: "Schranken-Modus",
-                    text: "Hier kannst du manuell aufzeichnen wann die Schranke zu und wieder auf geht. Die App lernt automatisch aus deinen Beobachtungen und wird dadurch genauer. Funktioniert nur direkt an der Schranke (250m Umkreis) — so bleiben die geteilten Messdaten echt."
+                    text: "Hier kannst du manuell aufzeichnen wann die Schranke zu und wieder auf geht. " +
+                          "Die App lernt automatisch aus deinen Beobachtungen und wird dadurch genauer. " +
+                          "Funktioniert nur direkt an der Schranke (250m Umkreis) — so bleiben die geteilten Messdaten echt."
                 )
 
                 helpSection(
@@ -683,7 +697,9 @@ struct HelpView: View {
                     icon: "dot.radiowaves.left.and.right",
                     color: .green,
                     title: "Geops Live (GPS)",
-                    text: "Die App empfängt die Live-GPS-Position der Züge in Echtzeit. Daraus wird der Schließzeitpunkt direkt aus der tatsächlichen Zugposition berechnet — viel genauer als aus dem Fahrplan allein. Der grüne Punkt unten zeigt, dass die Live-Verbindung steht."
+                    text: "Die App empfängt die Live-GPS-Position der Züge in Echtzeit. " +
+                          "Daraus wird der Schließzeitpunkt direkt aus der tatsächlichen Zugposition berechnet — viel genauer als aus dem Fahrplan allein. " +
+                          "Der grüne Punkt unten zeigt, dass die Live-Verbindung steht."
                 )
 
                 helpSection(
@@ -697,7 +713,8 @@ struct HelpView: View {
                     icon: "tram.fill.tunnel",
                     color: .orange,
                     title: "Andere Züge & Güterzüge",
-                    text: "Nähert sich ein Zug der keine S-Bahn ist (z.B. Regionalbahn) und kreuzt den Übergang, erkennt die App ihn über GPS und zeigt ihn mit echtem Namen und Richtung an. Hinweis: Reine Güterzüge ohne öffentlichen Fahrplan können nicht immer erfasst werden."
+                    text: "Nähert sich ein Zug der keine S-Bahn ist (z.B. Regionalbahn) und kreuzt den Übergang, erkennt die App ihn über GPS und zeigt ihn mit echtem Namen und Richtung an. " +
+                          "Hinweis: Reine Güterzüge ohne öffentlichen Fahrplan können nicht immer erfasst werden."
                 )
 
                 helpSection(

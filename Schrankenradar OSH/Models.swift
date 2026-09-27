@@ -81,7 +81,7 @@ struct TrainDeparture: Identifiable {
     /// zwei verschiedene S1-Züge (Richtung Freising vs. Richtung Flughafen, die sich hinter
     /// Neufahrn trennen) fälschlich als derselbe Zug zusammengefasst werden, wenn sie zufällig
     /// zur exakt selben Minute fahren (siehe dedupeCloseEvents/stabilize in CrossingViewModel).
-    var finalDestinationHint: String? = nil
+    var finalDestinationHint: String?
 }
 
 // MARK: - Crossing Event
@@ -105,9 +105,9 @@ struct CrossingEvent: Identifiable {
         // Schranke schließt tatsächlich ca. 120s (2min) vor dem Zug, nicht 90s — daher
         // "closed" ab 2.0min statt 1.5min. "warning" entsprechend auf 3.0min verschoben,
         // damit der bisherige 60s-Vorlauf vor der Schließung erhalten bleibt.
-        if minutes > 3.0                         { return .open }
-        if minutes > 2.0                         { return .warning }
-        if minutes > -openingDelayMinutes        { return .closed }
+        if minutes > 3.0 { return .open }
+        if minutes > 2.0 { return .warning }
+        if minutes > -openingDelayMinutes { return .closed }
         if minutes > -openingDelayMinutes - 0.17 { return .opening }
         return .open
     }

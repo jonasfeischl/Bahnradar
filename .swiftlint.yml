@@ -1,0 +1,68 @@
+disabled_rules:
+  - todo
+  # Projekt nutzt durchgehend eigene Einrückung bei mehrzeiligen Aufrufen statt
+  # Ausrichtung am ersten Parameter — Regel würde nur bestehenden, konsistenten Stil melden.
+  - vertical_parameter_alignment
+  # "masterKey" ist der von JSONBin.io selbst vorgegebene API-Feldname (X-Master-Key-Header) —
+  # nicht unsere Wortwahl, umbenennen würde nur verschleiern worum es geht.
+  - inclusive_language
+
+line_length:
+  warning: 250
+  error: 700
+  ignores_comments: true
+  ignores_urls: true
+  ignores_function_declarations: true
+
+file_length:
+  warning: 1500
+  error: 2500
+
+type_body_length:
+  warning: 500
+  error: 900
+
+function_body_length:
+  warning: 100
+  error: 200
+
+cyclomatic_complexity:
+  warning: 25
+  error: 40
+
+identifier_name:
+  min_length:
+    warning: 1
+  max_length:
+    warning: 60
+    error: 80
+  # R/P/Q/K sind Standardnotation für Kalman-Filter (CrossingViewModel) und Erdradius/
+  # Haversine-Formel (GeopsRealtimeService) — lesbarer als ausgeschriebene Namen, weil sie
+  # direkt der mathematischen Formel entsprechen. Δφ/Δλ/P_pred aus demselben Grund erlaubt.
+  excluded:
+    - R
+    - P
+    - Q
+    - K
+    - P_pred
+  allowed_symbols:
+    - "Δ"
+    - "_"
+
+type_name:
+  # Fix vorgegeben durch Xcode-Projektvorlage (App-Name), nicht sinnvoll umbenennbar.
+  excluded:
+    - Schrankenradar_OSHApp
+
+# Ein "echter" Fix (Parameter in einen Struct bündeln / Tupel durch benannten Typ ersetzen)
+# würde Funktionssignaturen und alle Call-Sites ändern — bewusst nicht angefasst, um an
+# funktionierendem, getestetem Code nichts zu riskieren. Schwellwerte großzügig genug für die
+# wenigen bestehenden Fälle (max. 10 Parameter, 5er-Tupel), damit neue, wirklich unübersichtliche
+# Fälle trotzdem noch auffallen.
+function_parameter_count:
+  warning: 10
+  error: 12
+
+large_tuple:
+  warning: 5
+  error: 6

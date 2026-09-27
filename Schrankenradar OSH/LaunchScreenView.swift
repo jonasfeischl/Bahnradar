@@ -92,7 +92,7 @@ private struct RadarGlyph: View {
                         stops: [
                             .init(color: accentColor.opacity(0), location: 0.0),
                             .init(color: accentColor.opacity(0), location: 0.78),
-                            .init(color: accentColor.opacity(0.9), location: 1.0),
+                            .init(color: accentColor.opacity(0.9), location: 1.0)
                         ],
                         center: .center
                     )

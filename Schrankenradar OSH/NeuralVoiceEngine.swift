@@ -42,8 +42,19 @@ actor NeuralVoiceEngine {
     /// ständig, dadurch entfällt für wiederkehrende Ansagen die Inferenz komplett.
     private var inferenceCache: [String: [Float]] = [:]
 
+    /// In Xcode-Previews (Canvas UND On-Device) wird das ONNX-Modell erst gar nicht geladen —
+    /// die On-Device-Preview-JIT-Verlinkung von onnxruntime ist bekannt fragil (großes natives
+    /// C++-Binary), normaler Build+Run ist davon nicht betroffen. `VoiceAnnouncer` fällt dank
+    /// des schon bestehenden `isAvailable`/`session == nil`-Pfads automatisch auf die
+    /// Systemstimme zurück, exakt wie beim Fehlen des Modells auf einem echten Gerät.
+    private static let isRunningInPreview: Bool = {
+        let env = ProcessInfo.processInfo.environment
+        return env["XCODE_RUNNING_FOR_PREVIEWS"] == "1" || env["XCODE_RUNNING_FOR_PLAYGROUNDS"] == "1"
+    }()
+
     init() {
         guard
+            !Self.isRunningInPreview,
             let modelURL = Bundle.main.url(forResource: "thorsten_vits", withExtension: "onnx"),
             let env = try? ORTEnv(loggingLevel: .warning),
             let session = try? ORTSession(env: env, modelPath: modelURL.path, sessionOptions: nil),

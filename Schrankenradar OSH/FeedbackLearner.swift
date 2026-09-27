@@ -102,7 +102,7 @@ final class FeedbackLearner {
     private(set) var closingOffsetToMunich: Double
     private(set) var closingOffsetToFreising: Double
 
-    var lastFeedbackMessage: String? = nil
+    var lastFeedbackMessage: String?
     private(set) var isCloudConnected: Bool = false
     /// Anzahl Community-Votes (geräteübergreifend) für diesen Übergang — auch wenn sie
     /// sich netto aufheben. Nötig damit das Genauigkeits-Badge auf einem ZWEITEN Gerät
@@ -112,22 +112,22 @@ final class FeedbackLearner {
     private(set) var history: [FeedbackEntry] = []
 
     // UserDefaults Keys — pro Übergang eindeutig
-    private var keyClosingOffset:   String { key("closingOffsetAdjustment",  crossing: crossingId) }
-    private var keyOpeningDelay:    String { key("openingDelayAdjustment",   crossing: crossingId) }
-    private var keyFeedbackCount:   String { key("feedbackCount",            crossing: crossingId) }
-    private var keyStepSeconds:     String { key("feedbackStepSeconds",      crossing: crossingId) }
-    private var keyHistory:         String { key("feedbackHistory",          crossing: crossingId) }
-    private var keyClosingMunich:   String { key("closingOffsetMunich",      crossing: crossingId) }
-    private var keyClosingFreising: String { key("closingOffsetFreising",    crossing: crossingId) }
+    private var keyClosingOffset: String { key("closingOffsetAdjustment", crossing: crossingId) }
+    private var keyOpeningDelay: String { key("openingDelayAdjustment", crossing: crossingId) }
+    private var keyFeedbackCount: String { key("feedbackCount", crossing: crossingId) }
+    private var keyStepSeconds: String { key("feedbackStepSeconds", crossing: crossingId) }
+    private var keyHistory: String { key("feedbackHistory", crossing: crossingId) }
+    private var keyClosingMunich: String { key("closingOffsetMunich", crossing: crossingId) }
+    private var keyClosingFreising: String { key("closingOffsetFreising", crossing: crossingId) }
 
     init(crossingId: String = "osh_dachauer") {
         self.crossingId         = crossingId
         let kClose   = key("closingOffsetAdjustment", crossing: crossingId)
-        let kOpen    = key("openingDelayAdjustment",  crossing: crossingId)
-        let kCount   = key("feedbackCount",           crossing: crossingId)
-        let kStep    = key("feedbackStepSeconds",     crossing: crossingId)
-        let kMunich  = key("closingOffsetMunich",     crossing: crossingId)
-        let kFreis   = key("closingOffsetFreising",   crossing: crossingId)
+        let kOpen    = key("openingDelayAdjustment", crossing: crossingId)
+        let kCount   = key("feedbackCount", crossing: crossingId)
+        let kStep    = key("feedbackStepSeconds", crossing: crossingId)
+        let kMunich  = key("closingOffsetMunich", crossing: crossingId)
+        let kFreis   = key("closingOffsetFreising", crossing: crossingId)
         closingOffsetAdjustment = UserDefaults.standard.double(forKey: kClose)
         openingDelayAdjustment  = UserDefaults.standard.double(forKey: kOpen)
         feedbackCount           = UserDefaults.standard.integer(forKey: kCount)
@@ -270,7 +270,7 @@ final class FeedbackLearner {
             await jsonBin.submitVote(
                 crossingId: crossingId,
                 closingDelta: nil, openingDelta: nil,
-                closingMunich:   toMunich ? correction : nil,
+                closingMunich: toMunich ? correction : nil,
                 closingFreising: toMunich ? nil : correction
             )
         }
@@ -315,7 +315,7 @@ final class FeedbackLearner {
             await jsonBin.submitVote(
                 crossingId: crossingId,
                 closingDelta: nil, openingDelta: nil,
-                closingMunich:   toMunich ? -vote : nil,
+                closingMunich: toMunich ? -vote : nil,
                 closingFreising: toMunich ? nil : -vote
             )
         }
@@ -354,9 +354,9 @@ final class FeedbackLearner {
 
     private func persistLocal() {
         UserDefaults.standard.set(closingOffsetAdjustment, forKey: keyClosingOffset)
-        UserDefaults.standard.set(openingDelayAdjustment,  forKey: keyOpeningDelay)
-        UserDefaults.standard.set(feedbackCount,           forKey: keyFeedbackCount)
-        UserDefaults.standard.set(closingOffsetToMunich,   forKey: keyClosingMunich)
+        UserDefaults.standard.set(openingDelayAdjustment, forKey: keyOpeningDelay)
+        UserDefaults.standard.set(feedbackCount, forKey: keyFeedbackCount)
+        UserDefaults.standard.set(closingOffsetToMunich, forKey: keyClosingMunich)
         UserDefaults.standard.set(closingOffsetToFreising, forKey: keyClosingFreising)
     }
 

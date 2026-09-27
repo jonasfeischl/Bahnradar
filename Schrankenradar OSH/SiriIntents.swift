@@ -12,10 +12,10 @@ enum CrossingOption: String, AppEnum {
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "Bahnübergang"
 
     static var caseDisplayRepresentations: [CrossingOption: DisplayRepresentation] = [
-        .oshdachauer:   DisplayRepresentation(title: "Oberschleißheimer Schranke"),
-        .lerchenauer1:   DisplayRepresentation(title: "erste Feldmochinger Schranke"),
-        .lerchenauer2:   DisplayRepresentation(title: "zweite Feldmochinger Schranke"),
-        .feldmochinger: DisplayRepresentation(title: "Fasanerier Schranke"),
+        .oshdachauer: DisplayRepresentation(title: "Oberschleißheimer Schranke"),
+        .lerchenauer1: DisplayRepresentation(title: "erste Feldmochinger Schranke"),
+        .lerchenauer2: DisplayRepresentation(title: "zweite Feldmochinger Schranke"),
+        .feldmochinger: DisplayRepresentation(title: "Fasanerier Schranke")
     ]
 
     var crossingLocation: CrossingLocation? {
@@ -185,7 +185,7 @@ struct CrossingAppShortcuts: AppShortcutsProvider {
                 "Status Oberschleißheimer Schranke in \(.applicationName)",
                 "Oberschleißheimer Schranke in \(.applicationName)",
                 "Ist die Oberschleißheimer Schranke offen in \(.applicationName)",
-                "Ist die Oberschleißheimer Schranke zu in \(.applicationName)",
+                "Ist die Oberschleißheimer Schranke zu in \(.applicationName)"
             ],
             shortTitle: "Schranke OSH",
             systemImageName: "train.side.front.car"
@@ -195,7 +195,7 @@ struct CrossingAppShortcuts: AppShortcutsProvider {
             intent: OshNextTrainIntent(),
             phrases: [
                 "Nächster Zug Oberschleißheim in \(.applicationName)",
-                "Wann schließt die Oberschleißheimer Schranke in \(.applicationName)",
+                "Wann schließt die Oberschleißheimer Schranke in \(.applicationName)"
             ],
             shortTitle: "Zug OSH",
             systemImageName: "tram.fill"
@@ -207,7 +207,7 @@ struct CrossingAppShortcuts: AppShortcutsProvider {
             phrases: [
                 "Status erste Feldmochinger Schranke in \(.applicationName)",
                 "Erste Feldmochinger Schranke in \(.applicationName)",
-                "Ist die erste Feldmochinger Schranke offen in \(.applicationName)",
+                "Ist die erste Feldmochinger Schranke offen in \(.applicationName)"
             ],
             shortTitle: "Schranke Feldmochinger 1",
             systemImageName: "train.side.front.car"
@@ -217,7 +217,7 @@ struct CrossingAppShortcuts: AppShortcutsProvider {
             intent: Lerchenauer1NextTrainIntent(),
             phrases: [
                 "Nächster Zug erste Feldmochinger in \(.applicationName)",
-                "Wann schließt die erste Feldmochinger Schranke in \(.applicationName)",
+                "Wann schließt die erste Feldmochinger Schranke in \(.applicationName)"
             ],
             shortTitle: "Zug Feldmochinger 1",
             systemImageName: "tram.fill"
@@ -229,7 +229,7 @@ struct CrossingAppShortcuts: AppShortcutsProvider {
             phrases: [
                 "Status zweite Feldmochinger Schranke in \(.applicationName)",
                 "Zweite Feldmochinger Schranke in \(.applicationName)",
-                "Ist die zweite Feldmochinger Schranke offen in \(.applicationName)",
+                "Ist die zweite Feldmochinger Schranke offen in \(.applicationName)"
             ],
             shortTitle: "Schranke Feldmochinger 2",
             systemImageName: "train.side.front.car"
@@ -239,7 +239,7 @@ struct CrossingAppShortcuts: AppShortcutsProvider {
             intent: Lerchenauer2NextTrainIntent(),
             phrases: [
                 "Nächster Zug zweite Feldmochinger in \(.applicationName)",
-                "Wann schließt die zweite Feldmochinger Schranke in \(.applicationName)",
+                "Wann schließt die zweite Feldmochinger Schranke in \(.applicationName)"
             ],
             shortTitle: "Zug Feldmochinger 2",
             systemImageName: "tram.fill"
@@ -251,7 +251,7 @@ struct CrossingAppShortcuts: AppShortcutsProvider {
             phrases: [
                 "Status Fasanerier Schranke in \(.applicationName)",
                 "Fasanerier Schranke in \(.applicationName)",
-                "Ist die Fasanerier Schranke offen in \(.applicationName)",
+                "Ist die Fasanerier Schranke offen in \(.applicationName)"
             ],
             shortTitle: "Schranke Fasanerie",
             systemImageName: "train.side.front.car"
@@ -261,7 +261,7 @@ struct CrossingAppShortcuts: AppShortcutsProvider {
             intent: FeldmochingerNextTrainIntent(),
             phrases: [
                 "Nächster Zug Fasanerie in \(.applicationName)",
-                "Wann schließt die Fasanerier Schranke in \(.applicationName)",
+                "Wann schließt die Fasanerier Schranke in \(.applicationName)"
             ],
             shortTitle: "Zug Fasanerie",
             systemImageName: "tram.fill"

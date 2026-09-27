@@ -84,7 +84,9 @@ struct RouteView: View {
             FeatureIntroScreen(
                 icon: "signpost.right.and.left.fill",
                 title: "Fahrt",
-                message: "Gib Start und Ziel ein — die App berechnet eine Route und prüft dabei, ob einer der bekannten Bahnübergänge im Weg liegt. Ist die Schranke voraussichtlich zu, bekommst du eine Umfahrung vorgeschlagen. Die eigentliche Navigation übernimmt Apple oder Google Maps; diese App überwacht im Hintergrund weiter, ob sich die Zugankunft während der Fahrt deutlich ändert."
+                message: "Gib Start und Ziel ein — die App berechnet eine Route und prüft dabei, ob einer der bekannten Bahnübergänge im Weg liegt. " +
+                         "Ist die Schranke voraussichtlich zu, bekommst du eine Umfahrung vorgeschlagen. " +
+                         "Die eigentliche Navigation übernimmt Apple oder Google Maps; diese App überwacht im Hintergrund weiter, ob sich die Zugankunft während der Fahrt deutlich ändert."
             ) {
                 hasSeenFahrtIntro = true
                 showIntro = false
@@ -464,6 +466,11 @@ struct RouteView: View {
         }
     }
 
+}
+
+// Ausgelagert in eine extension, damit die primäre Typdeklaration unter dem SwiftLint-
+// Längenlimit bleibt (type_body_length) — reine Code-Organisation, keine Verhaltensänderung.
+extension RouteView {
     // MARK: - Weiterleitung
 
     private var actionButtons: some View {
@@ -573,7 +580,11 @@ struct RouteView: View {
             Label("Keine sicherheitsrelevante Anwendung", systemImage: "exclamationmark.triangle.fill")
                 .font(.caption.bold())
                 .foregroundStyle(.orange)
-            Text("Die Routenempfehlung ist eine unverbindliche Schätzung auf Basis von Fahrplan- und GPS-Daten. Nutze für die eigentliche Fahrt Apple Maps oder Google Maps und schau während der Fahrt nicht auf diese Karte — verlasse dich auf die Sprachansagen und ausschließlich auf die Schranken- und Signalanlage vor Ort.")
+            Text(
+                "Die Routenempfehlung ist eine unverbindliche Schätzung auf Basis von Fahrplan- und GPS-Daten. " +
+                "Nutze für die eigentliche Fahrt Apple Maps oder Google Maps und schau während der Fahrt nicht auf diese Karte — " +
+                "verlasse dich auf die Sprachansagen und ausschließlich auf die Schranken- und Signalanlage vor Ort."
+            )
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

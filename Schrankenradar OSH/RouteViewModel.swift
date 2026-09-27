@@ -403,6 +403,22 @@ final class RouteViewModel: NSObject {
         selectedDestination != nil && !isCalculating
     }
 
+    // Als gespeicherte Eigenschaft (stored property) muss das in der Klasse selbst stehen,
+    // nicht in der extension unten (Swift-Regel: extensions dürfen keine gespeicherten
+    // Eigenschaften enthalten) — hierher verschoben, um die extension type-body-length-konform
+    // zu machen, ohne die Funktionen selbst zu verschieben.
+    /// Erhöht sich bei jedem `calculateRoute`-Start UND bei jedem `resetRoutes()` — schützt
+    /// gegen die Race Condition, bei der eine noch laufende (langsame) Berechnung ERST NACH
+    /// einer bereits neueren Eingabe/Berechnung zurückkommt und deren Ergebnis überschreibt
+    /// (live beobachtet: App zeigte eine Route/Zeit, Weiterleitung nutzte ein anderes Ziel).
+    /// Jeder Schreibzugriff auf routes/matchesByRoute prüft vorher, ob seine Generation noch
+    /// aktuell ist — sonst wird das (jetzt veraltete) Ergebnis kommentarlos verworfen.
+    private var calculationGeneration = 0
+}
+
+// Ausgelagert in eine extension, damit die primäre Typdeklaration unter dem SwiftLint-
+// Längenlimit bleibt (type_body_length) — reine Code-Organisation, keine Verhaltensänderung.
+extension RouteViewModel {
     // MARK: - Sucheingabe
 
     func updateStartQuery(_ text: String) {
@@ -481,14 +497,6 @@ final class RouteViewModel: NSObject {
     }
 
     // MARK: - Routenberechnung
-
-    /// Erhöht sich bei jedem `calculateRoute`-Start UND bei jedem `resetRoutes()` — schützt
-    /// gegen die Race Condition, bei der eine noch laufende (langsame) Berechnung ERST NACH
-    /// einer bereits neueren Eingabe/Berechnung zurückkommt und deren Ergebnis überschreibt
-    /// (live beobachtet: App zeigte eine Route/Zeit, Weiterleitung nutzte ein anderes Ziel).
-    /// Jeder Schreibzugriff auf routes/matchesByRoute prüft vorher, ob seine Generation noch
-    /// aktuell ist — sonst wird das (jetzt veraltete) Ergebnis kommentarlos verworfen.
-    private var calculationGeneration = 0
 
     /// currentLocation kommt vom Aufrufer (RouteView → LocationMonitor.currentCoordinate) —
     /// RouteViewModel hält bewusst keine eigene LocationMonitor-Referenz, um nicht eine dritte

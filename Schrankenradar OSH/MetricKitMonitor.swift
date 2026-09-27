@@ -17,7 +17,11 @@ final class MetricKitMonitor: NSObject, MXMetricManagerSubscriber {
     private(set) var isRunning = false
 
     func toggle() {
-        isRunning ? stop() : start()
+        if isRunning {
+            stop()
+        } else {
+            start()
+        }
     }
 
     private func start() {

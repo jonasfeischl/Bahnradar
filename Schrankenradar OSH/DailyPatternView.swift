@@ -23,7 +23,7 @@ struct DailyPatternView: View {
         }
         // Farbe nach durchschnittlicher Sperrdauer
         var color: Color {
-            if avgDurationSeconds < 60  { return .green }
+            if avgDurationSeconds < 60 { return .green }
             if avgDurationSeconds < 120 { return .yellow }
             return .red
         }
@@ -140,7 +140,7 @@ struct DailyPatternView: View {
             Chart(hourlyData) { entry in
                 BarMark(
                     x: .value("Uhrzeit", entry.hourLabel),
-                    y: .value("Anzahl",  entry.count)
+                    y: .value("Anzahl", entry.count)
                 )
                 .foregroundStyle(entry.color)
                 .cornerRadius(4)
@@ -164,9 +164,9 @@ struct DailyPatternView: View {
 
             // Legende
             HStack(spacing: 16) {
-                legendDot(.green,  "< 1 min")
+                legendDot(.green, "< 1 min")
                 legendDot(.yellow, "1–2 min")
-                legendDot(.red,    "> 2 min")
+                legendDot(.red, "> 2 min")
             }
             .font(.caption2)
             .foregroundStyle(.secondary)

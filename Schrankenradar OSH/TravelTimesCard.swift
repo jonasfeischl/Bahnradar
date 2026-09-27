@@ -9,7 +9,7 @@ struct TravelTimesCard: View {
     var locationMonitor: LocationMonitor
     /// Meldet die aktuelle Auto-Fahrzeit nach oben — genutzt von ContentView, um in der
     /// Zugliste pro Zug einen Haken/Ausrufezeichen zu zeigen ("schaffst du's noch rechtzeitig").
-    var onCarETAUpdate: ((TimeInterval?) -> Void)? = nil
+    var onCarETAUpdate: ((TimeInterval?) -> Void)?
 
     private struct ETAs {
         var car: TimeInterval?

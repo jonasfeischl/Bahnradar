@@ -54,9 +54,9 @@ struct JSONBinService {
               let crossing = record[crossingId] as? [String: Any] else { return (0, 0, 0, 0, 0) }
 
         // Pro User Median berechnen → dann Median aller User-Mediane (Ausreißerschutz)
-        var userClosingMedians:  [Double] = []
-        var userOpeningMedians:  [Double] = []
-        var userMunichMedians:   [Double] = []
+        var userClosingMedians: [Double] = []
+        var userOpeningMedians: [Double] = []
+        var userMunichMedians: [Double] = []
         var userFreisingMedians: [Double] = []
 
         var totalVotes = 0
@@ -67,8 +67,8 @@ struct JSONBinService {
             let cm = userEntry["cm"] as? [Double] ?? []
             let cf = userEntry["cf"] as? [Double] ?? []
             totalVotes += c.count + o.count + cm.count + cf.count
-            if !c.isEmpty  { userClosingMedians.append(median(of: c)) }
-            if !o.isEmpty  { userOpeningMedians.append(median(of: o)) }
+            if !c.isEmpty { userClosingMedians.append(median(of: c)) }
+            if !o.isEmpty { userOpeningMedians.append(median(of: o)) }
             if !cm.isEmpty { userMunichMedians.append(median(of: cm)) }
             if !cf.isEmpty { userFreisingMedians.append(median(of: cf)) }
         }
@@ -97,7 +97,7 @@ struct JSONBinService {
               let crossing = record[crossingId] as? [String: Any]
         else { return .empty }
 
-        var allMunich:   [Double] = []
+        var allMunich: [Double] = []
         var allFreising: [Double] = []
 
         for (_, value) in crossing {
@@ -107,13 +107,13 @@ struct JSONBinService {
         }
 
         // Ausreißer herausfiltern (außerhalb ±5 Minuten = eindeutig falsch)
-        let filteredMunich   = allMunich.filter   { abs($0) < 300 }
+        let filteredMunich   = allMunich.filter { abs($0) < 300 }
         let filteredFreising = allFreising.filter { abs($0) < 300 }
 
         return CommunityGPSOffsets(
-            munich:        filteredMunich.isEmpty   ? nil : median(of: filteredMunich),
-            freising:      filteredFreising.isEmpty ? nil : median(of: filteredFreising),
-            munichCount:   filteredMunich.count,
+            munich: filteredMunich.isEmpty   ? nil : median(of: filteredMunich),
+            freising: filteredFreising.isEmpty ? nil : median(of: filteredFreising),
+            munichCount: filteredMunich.count,
             freisingCount: filteredFreising.count
         )
     }
@@ -152,7 +152,7 @@ struct JSONBinService {
         for crossingId in CrossingLocation.all.map(\.id) {
             guard let crossing = record[crossingId] as? [String: Any] else { continue }
 
-            var allMunich:   [Double] = []
+            var allMunich: [Double] = []
             var allFreising: [Double] = []
 
             for (_, value) in crossing {
@@ -161,13 +161,13 @@ struct JSONBinService {
                 if let gf = entry["gf"] as? [Double] { allFreising.append(contentsOf: gf) }
             }
 
-            let fM = allMunich.filter   { abs($0) < 300 }
+            let fM = allMunich.filter { abs($0) < 300 }
             let fF = allFreising.filter { abs($0) < 300 }
 
             result[crossingId] = CommunityGPSOffsets(
-                munich:        fM.isEmpty ? nil : median(of: fM),
-                freising:      fF.isEmpty ? nil : median(of: fF),
-                munichCount:   fM.count,
+                munich: fM.isEmpty ? nil : median(of: fM),
+                freising: fF.isEmpty ? nil : median(of: fF),
+                munichCount: fM.count,
                 freisingCount: fF.count
             )
 #if DEBUG
@@ -181,7 +181,7 @@ struct JSONBinService {
     /// Speichert einen GPS-Rohoffset dieses Geräts für einen Bahnübergang.
     /// Pro Gerät werden max. 50 Messungen gehalten (älteste werden verworfen).
     func submitGPSOffset(crossingId: String,
-                         munichOffset:   Double? = nil,
+                         munichOffset: Double? = nil,
                          freisingOffset: Double? = nil) async {
         guard munichOffset != nil || freisingOffset != nil else { return }
         guard let url = URL(string: "\(baseURL)/\(binID)/latest") else { return }
@@ -202,7 +202,7 @@ struct JSONBinService {
             userEntry[key] = values
         }
 
-        if let m = munichOffset   { appendGPS(m, key: "gm") }
+        if let m = munichOffset { appendGPS(m, key: "gm") }
         if let f = freisingOffset { appendGPS(f, key: "gf") }
 
         crossingData[anonymousUserId] = userEntry
@@ -239,9 +239,9 @@ struct JSONBinService {
             userEntry[key] = votes
         }
 
-        if let d = closingDelta   { append(d, key: "c") }
-        if let d = openingDelta   { append(d, key: "o") }
-        if let d = closingMunich  { append(d, key: "cm") }
+        if let d = closingDelta { append(d, key: "c") }
+        if let d = openingDelta { append(d, key: "o") }
+        if let d = closingMunich { append(d, key: "cm") }
         if let d = closingFreising { append(d, key: "cf") }
 
         crossingData[anonymousUserId] = userEntry

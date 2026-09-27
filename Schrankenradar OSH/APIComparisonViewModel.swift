@@ -114,7 +114,7 @@ final class APIComparisonViewModel {
         guard enabledSources.contains(.db) else {
             var rows: [ComparisonRow] = []
             if enabledSources.contains(.geops) { rows += geopsRows }
-            if enabledSources.contains(.mvg)   { rows += mvgRows }
+            if enabledSources.contains(.mvg) { rows += mvgRows }
             combinedRows = rows.sorted { $0.actualTime < $1.actualTime }
             return
         }
@@ -210,8 +210,7 @@ final class APIComparisonViewModel {
     private static func combinedRow(from entry: TrainEntry, crossing: CrossingLocation) -> ComparisonRow {
         var noteParts: [String] = []
         if entry.geopsMatchedTripId != nil { noteParts.append("Geops ✓") }
-        if entry.isCancelled { noteParts.append("ausgefallen") }
-        else if let platform = entry.platform { noteParts.append("Gleis \(platform)") }
+        if entry.isCancelled { noteParts.append("ausgefallen") } else if let platform = entry.platform { noteParts.append("Gleis \(platform)") }
         return ComparisonRow(
             id: entry.id,
             source: .db,

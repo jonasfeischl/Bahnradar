@@ -208,7 +208,7 @@ final class GeopsRealtimeService {
     /// Räumt Richtungs-Caches für Trips auf, die nicht mehr aktiv verfolgt werden.
     private func pruneDirectionCaches(activeTripIds: Set<String>) {
         confirmedDirections = confirmedDirections.filter { activeTripIds.contains($0.key) }
-        firstSeenPosition   = firstSeenPosition.filter   { activeTripIds.contains($0.key) }
+        firstSeenPosition   = firstSeenPosition.filter { activeTripIds.contains($0.key) }
     }
 
     // Drosselung für .geopsDataChanged — verhindert Event-Rebuild-Sturm bei vielen Updates
@@ -265,6 +265,11 @@ final class GeopsRealtimeService {
         stationNames = result
     }
 
+}
+
+// Ausgelagert in eine extension, damit die primäre Typdeklaration unter dem SwiftLint-
+// Längenlimit bleibt (type_body_length) — reine Code-Organisation, keine Verhaltensänderung.
+extension GeopsRealtimeService {
     // MARK: - Verbindung
 
     func connect() {
@@ -484,12 +489,12 @@ final class GeopsRealtimeService {
                                                   lat: lat, lon: lon)
 
         let vehicle = GeopsVehicle(
-            tripId:    tripId,
-            lineName:  lineRaw,
-            lat:       lat,
-            lon:       lon,
-            prevLat:   previous?.lat,
-            prevLon:   previous?.lon,
+            tripId: tripId,
+            lineName: lineRaw,
+            lat: lat,
+            lon: lon,
+            prevLat: previous?.lat,
+            prevLon: previous?.lon,
             updatedAt: Date(),
             inferredDirection: resolvedDirection,
             rawCoords: rawCoords,
@@ -664,15 +669,15 @@ final class GeopsRealtimeService {
             let safeActual = plausible ? actual   : planned
 
             let departure = GeopsStopDeparture(
-                id:               tripId,
-                tripId:           tripId,
-                lineName:         lineName,
-                destination:      destination,
+                id: tripId,
+                tripId: tripId,
+                lineName: lineName,
+                destination: destination,
                 plannedDeparture: planned,
-                actualDeparture:  safeActual,
-                delaySec:         safeDelay,
+                actualDeparture: safeActual,
+                delaySec: safeDelay,
                 inferredDirection: inferDirection(from: destination),
-                updatedAt:        Date()
+                updatedAt: Date()
             )
 
             if stopDepartures[evaId] == nil { stopDepartures[evaId] = [:] }
@@ -699,9 +704,7 @@ final class GeopsRealtimeService {
 
     private func msValue(_ any: Any?) -> Double? {
         let raw: Double?
-        if let d = any as? Double, d > 0 { raw = d }
-        else if let i = any as? Int, i > 0 { raw = Double(i) }
-        else if let s = any as? String {
+        if let d = any as? Double, d > 0 { raw = d } else if let i = any as? Int, i > 0 { raw = Double(i) } else if let s = any as? String {
             // Geops liefert manchmal ISO-8601-Strings statt Unix-Timestamps
             let f = ISO8601DateFormatter()
             f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -789,16 +792,16 @@ final class GeopsRealtimeService {
         // Diakritik-unabhängig vergleichen — robust gegen unterschiedliche Unicode-
         // Normalform (vorkomponiertes vs. zusammengesetztes ü) je nach Geops-Antwort.
         let d = destination.lowercased().folding(options: [.diacriticInsensitive], locale: .current)
-        let toFreising = ["freising","flughafen","neufahrn","airport","muc",
-                          "hallbergmoos","lohhof","eching","pulling","erding"]
+        let toFreising = ["freising", "flughafen", "neufahrn", "airport", "muc",
+                          "hallbergmoos", "lohhof", "eching", "pulling", "erding"]
         // "Leuchtenbergring" ist neben Ostbahnhof der zweite offizielle südliche S1-Endpunkt —
         // fehlte hier, wodurch diese sehr häufigen Züge kein Ziel-Signal bekamen und auf die
         // unsichere reine GPS-Bewegungsschätzung zurückfielen (Ursache für falsch angezeigte
         // Richtung kurz nach erster Erfassung eines Zuges).
-        let toMunich   = ["munchen","ostbahnhof","leuchtenbergring","pasing",
-                          "laim","petershausen","dachau","karlsfeld","moosach"]
+        let toMunich   = ["munchen", "ostbahnhof", "leuchtenbergring", "pasing",
+                          "laim", "petershausen", "dachau", "karlsfeld", "moosach"]
         if toFreising.contains(where: { d.contains($0) }) { return .toFreising }
-        if toMunich.contains(where:   { d.contains($0) }) { return .toMunich   }
+        if toMunich.contains(where: { d.contains($0) }) { return .toMunich   }
         return nil
     }
 
@@ -874,9 +877,9 @@ final class GeopsRealtimeService {
                 object: nil,
                 userInfo: [
                     "crossingId": crossing.id,
-                    "offset":     offset,
-                    "toMunich":   toMunich,
-                    "lineName":   current.lineName
+                    "offset": offset,
+                    "toMunich": toMunich,
+                    "lineName": current.lineName
                 ]
             )
         }
@@ -909,9 +912,9 @@ final class GeopsRealtimeService {
                 object: nil,
                 userInfo: [
                     "crossingId": d.crossingId,
-                    "offset":     offset,
-                    "toMunich":   d.toMunich,
-                    "lineName":   d.lineName
+                    "offset": offset,
+                    "toMunich": d.toMunich,
+                    "lineName": d.lineName
                 ]
             )
         }
@@ -953,7 +956,7 @@ final class GeopsRealtimeService {
         let vertexSpan   = Double(rawCoords.count - 1)
 
         for i in 0..<(rawCoords.count - 1) {
-            let ax = rawCoords[i][0],   ay = rawCoords[i][1]
+            let ax = rawCoords[i][0], ay = rawCoords[i][1]
             let bx = rawCoords[i+1][0], by = rawCoords[i+1][1]
             let dx = bx - ax, dy = by - ay
             let segLen = segLengths[i]
@@ -993,7 +996,7 @@ final class GeopsRealtimeService {
         }
 
         if bestProgress <= sorted.first!.progress { return result(sorted.first!.ts) }
-        if bestProgress >= sorted.last!.progress  { return result(sorted.last!.ts) }
+        if bestProgress >= sorted.last!.progress { return result(sorted.last!.ts) }
         for i in 0..<(sorted.count - 1) {
             let p1 = sorted[i].progress, p2 = sorted[i+1].progress
             guard p1 <= bestProgress, bestProgress <= p2 else { continue }

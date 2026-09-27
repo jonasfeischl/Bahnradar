@@ -171,7 +171,8 @@ private struct OnboardingPermissionsScreen: View {
                 VStack(alignment: .leading, spacing: 18) {
                     permissionRow(icon: "location.fill",
                                   title: "Standort",
-                                  text: "Wechselt automatisch zum nächsten Bahnübergang, sobald du in dessen Nähe kommst. Bei der zweiten Standort-Abfrage bitte „Immer erlauben“ wählen, sonst funktionieren Sprachwarnungen nicht bei gesperrtem Bildschirm.")
+                                  text: "Wechselt automatisch zum nächsten Bahnübergang, sobald du in dessen Nähe kommst. " +
+                                        "Bei der zweiten Standort-Abfrage bitte „Immer erlauben“ wählen, sonst funktionieren Sprachwarnungen nicht bei gesperrtem Bildschirm.")
                     permissionRow(icon: "figure.walk.motion",
                                   title: "Bewegung & Fitness",
                                   text: "Erkennt automatisch, wenn du fährst, und aktiviert dann die Sprachansagen.")

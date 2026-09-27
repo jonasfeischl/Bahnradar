@@ -56,17 +56,17 @@ struct CrossingProvider: TimelineProvider {
     // Geteilte UserDefaults mit der Haupt-App (App Group)
     private var shared: UserDefaults { UserDefaults(suiteName: "group.schrankenradar.osh") ?? .standard }
 
-    private var stationEVA:       String { shared.string(forKey: "widget_stationEVA")       ?? "8004580" }
-    private var crossingName:     String { shared.string(forKey: "widget_crossingName")     ?? "Dachauer Str." }
+    private var stationEVA: String { shared.string(forKey: "widget_stationEVA")       ?? "8004580" }
+    private var crossingName: String { shared.string(forKey: "widget_crossingName")     ?? "Dachauer Str." }
     private var crossingSubtitle: String { shared.string(forKey: "widget_crossingSubtitle") ?? "Oberschleißheim" }
-    private var offsetToMunich:   Double { shared.double(forKey: "widget_offsetToMunich").nonZero ?? 180 }
+    private var offsetToMunich: Double { shared.double(forKey: "widget_offsetToMunich").nonZero ?? 180 }
     private var offsetToFreising: Double { shared.double(forKey: "widget_offsetToFreising").nonZero ?? -180 }
-    private var onlyS1:           Bool   { shared.object(forKey: "widget_onlyS1") != nil ? shared.bool(forKey: "widget_onlyS1") : true }
+    private var onlyS1: Bool { shared.object(forKey: "widget_onlyS1") != nil ? shared.bool(forKey: "widget_onlyS1") : true }
 
     func placeholder(in context: Context) -> CrossingEntry {
         CrossingEntry(date: .now, status: .open, nextTrains: [
-            WidgetTrain(line: "S1", direction: "München",  crossingTime: Date().addingTimeInterval(240)),
-            WidgetTrain(line: "S1", direction: "Freising", crossingTime: Date().addingTimeInterval(480)),
+            WidgetTrain(line: "S1", direction: "München", crossingTime: Date().addingTimeInterval(240)),
+            WidgetTrain(line: "S1", direction: "Freising", crossingTime: Date().addingTimeInterval(480))
         ], crossingName: crossingName, crossingSubtitle: crossingSubtitle)
     }
 
@@ -212,15 +212,13 @@ struct CrossingProvider: TimelineProvider {
                       !lineR.hasPrefix("IC"), !lineR.hasPrefix("EC") else { return nil }
 
                 if onlyS1 {
-                    let blocked: Set<String> = ["2","3","4","5","6","7","8","20",
-                                               "S2","S3","S4","S5","S6","S7","S8","S20"]
+                    let blocked: Set<String> = ["2", "3", "4", "5", "6", "7", "8", "20",
+                                               "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S20"]
                     guard !blocked.contains(lineR) else { return nil }
                 }
 
                 let line: String
-                if lineR == "1" { line = "S1" }
-                else if let nr = Int(lineR), nr > 9 { line = "S1" }
-                else { line = lineR.hasPrefix("S") ? lineR : "S\(lineR)" }
+                if lineR == "1" { line = "S1" } else if let nr = Int(lineR), nr > 9 { line = "S1" } else { line = lineR.hasPrefix("S") ? lineR : "S\(lineR)" }
 
                 let depPath = dp["path"] ?? ""
                 let arrPath = (stop["ar"] as? [String: String])?["path"] ?? ""
@@ -243,7 +241,7 @@ struct CrossingProvider: TimelineProvider {
         let url = URL(string: "\(dbBase)/plan/\(stationEVA)/\(date.yyMMdd)/\(date.HH)")!
         var req = URLRequest(url: url)
         req.setValue(apiClientId, forHTTPHeaderField: "DB-Client-Id")
-        req.setValue(apiKey,      forHTTPHeaderField: "DB-Api-Key")
+        req.setValue(apiKey, forHTTPHeaderField: "DB-Api-Key")
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
         return WidgetXMLParser.parse(data: data)
@@ -253,7 +251,7 @@ struct CrossingProvider: TimelineProvider {
         let url = URL(string: "\(dbBase)/rchg/\(stationEVA)")!
         var req = URLRequest(url: url)
         req.setValue(apiClientId, forHTTPHeaderField: "DB-Client-Id")
-        req.setValue(apiKey,      forHTTPHeaderField: "DB-Api-Key")
+        req.setValue(apiKey, forHTTPHeaderField: "DB-Api-Key")
         req.setValue("application/xml", forHTTPHeaderField: "Accept")
         guard let (data, response) = try? await URLSession.shared.data(for: req),
               let http = response as? HTTPURLResponse, http.statusCode == 200
@@ -269,11 +267,11 @@ struct CrossingProvider: TimelineProvider {
 
         let dep = departurePath.lowercased().components(separatedBy: "|")
         if dep.contains(where: { s in freisungKW.contains { s.contains($0) } }) { return false }
-        if dep.contains(where: { s in munichKW.contains   { s.contains($0) } }) { return true }
+        if dep.contains(where: { s in munichKW.contains { s.contains($0) } }) { return true }
 
         if !arrivalPath.isEmpty {
             let arr = arrivalPath.lowercased().components(separatedBy: "|")
-            if arr.contains(where: { s in munichKW.contains   { s.contains($0) } }) { return false }
+            if arr.contains(where: { s in munichKW.contains { s.contains($0) } }) { return false }
             if arr.contains(where: { s in freisungKW.contains { s.contains($0) } }) { return true }
         }
 
@@ -288,10 +286,10 @@ struct CrossingProvider: TimelineProvider {
 
         func status(_ train: WidgetTrain) -> WidgetStatus {
             let m = train.minutesUntil(from: date)
-            if m > 2.5                          { return .open }
-            if m > 1.5                          { return .warning }
-            if m > -openingDelayMin             { return .closed }
-            if m > -openingDelayMin - 0.17      { return .opening }
+            if m > 2.5 { return .open }
+            if m > 1.5 { return .warning }
+            if m > -openingDelayMin { return .closed }
+            if m > -openingDelayMin - 0.17 { return .opening }
             return .open
         }
 
@@ -299,9 +297,9 @@ struct CrossingProvider: TimelineProvider {
         let hasWarning = upcoming.contains { status($0) == .warning }
         let hasOpening = upcoming.contains { status($0) == .opening }
 
-        if hasClosed               { return .closed }
+        if hasClosed { return .closed }
         if hasOpening && !hasWarning { return .opening }
-        if hasWarning              { return .warning }
+        if hasWarning { return .warning }
         return .open
     }
 }
@@ -622,9 +620,9 @@ struct MiniTrafficLight: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            dot(.red,    active: status == .closed)
+            dot(.red, active: status == .closed)
             dot(.yellow, active: status == .warning || status == .opening)
-            dot(.green,  active: status == .open)
+            dot(.green, active: status == .open)
         }
         .padding(8)
         .background(Color(.systemGray5))
@@ -735,7 +733,7 @@ private extension Double {
 
 private extension Date {
     var yyMMdd: String { DateFormatter.yyMMdd.string(from: self) }
-    var HH: String     { DateFormatter.HH.string(from: self) }
+    var HH: String { DateFormatter.HH.string(from: self) }
 }
 
 extension DateFormatter {
@@ -758,7 +756,7 @@ extension DateFormatter {
     SchrankenradarWidget()
 } timeline: {
     CrossingEntry(date: .now, status: .warning, nextTrains: [
-        WidgetTrain(line: "S1", direction: "München", crossingTime: Date().addingTimeInterval(120)),
+        WidgetTrain(line: "S1", direction: "München", crossingTime: Date().addingTimeInterval(120))
     ], crossingName: "Dachauer Str.", crossingSubtitle: "Oberschleißheim")
 }
 
@@ -766,8 +764,8 @@ extension DateFormatter {
     SchrankenradarWidget()
 } timeline: {
     CrossingEntry(date: .now, status: .warning, nextTrains: [
-        WidgetTrain(line: "S1", direction: "München",  crossingTime: Date().addingTimeInterval(120)),
-        WidgetTrain(line: "S1", direction: "Freising", crossingTime: Date().addingTimeInterval(360)),
+        WidgetTrain(line: "S1", direction: "München", crossingTime: Date().addingTimeInterval(120)),
+        WidgetTrain(line: "S1", direction: "Freising", crossingTime: Date().addingTimeInterval(360))
     ], crossingName: "Dachauer Str.", crossingSubtitle: "Oberschleißheim")
 }
 
@@ -775,10 +773,10 @@ extension DateFormatter {
     SchrankenradarWidget()
 } timeline: {
     CrossingEntry(date: .now, status: .closed, nextTrains: [
-        WidgetTrain(line: "S1", direction: "München",  crossingTime: Date().addingTimeInterval(60)),
+        WidgetTrain(line: "S1", direction: "München", crossingTime: Date().addingTimeInterval(60)),
         WidgetTrain(line: "S1", direction: "Freising", crossingTime: Date().addingTimeInterval(300)),
-        WidgetTrain(line: "S1", direction: "München",  crossingTime: Date().addingTimeInterval(600)),
-        WidgetTrain(line: "S1", direction: "Freising", crossingTime: Date().addingTimeInterval(900)),
+        WidgetTrain(line: "S1", direction: "München", crossingTime: Date().addingTimeInterval(600)),
+        WidgetTrain(line: "S1", direction: "Freising", crossingTime: Date().addingTimeInterval(900))
     ], crossingName: "Dachauer Str.", crossingSubtitle: "Oberschleißheim")
 }
 
@@ -786,6 +784,6 @@ extension DateFormatter {
     SchrankenradarWidget()
 } timeline: {
     CrossingEntry(date: .now, status: .warning, nextTrains: [
-        WidgetTrain(line: "S1", direction: "München", crossingTime: Date().addingTimeInterval(180)),
+        WidgetTrain(line: "S1", direction: "München", crossingTime: Date().addingTimeInterval(180))
     ], crossingName: "Dachauer Str.", crossingSubtitle: "Oberschleißheim")
 }

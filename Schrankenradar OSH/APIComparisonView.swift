@@ -138,8 +138,7 @@ struct APIComparisonView: View {
     private func sourceChip(_ source: APISource, viewModel: APIComparisonViewModel) -> some View {
         let isOn = viewModel.enabledSources.contains(source)
         return Button {
-            if isOn { viewModel.enabledSources.remove(source) }
-            else    { viewModel.enabledSources.insert(source) }
+            if isOn { viewModel.enabledSources.remove(source) } else { viewModel.enabledSources.insert(source) }
         } label: {
             Text(source.rawValue)
                 .font(.caption.bold())
@@ -253,10 +252,7 @@ struct APIComparisonView: View {
     private func statusColor(for time: Date) -> Color {
         let minutes = time.timeIntervalSinceNow / 60
         let status: CrossingStatus
-        if minutes > 3.0        { status = .open }
-        else if minutes > 2.0   { status = .warning }
-        else if minutes > -1.5  { status = .closed }
-        else                    { status = .open }
+        if minutes > 3.0 { status = .open } else if minutes > 2.0 { status = .warning } else if minutes > -1.5 { status = .closed } else { status = .open }
         return status.color
     }
 

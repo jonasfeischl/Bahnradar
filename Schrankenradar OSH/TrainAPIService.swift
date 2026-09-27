@@ -39,7 +39,7 @@ struct TrainAPIService {
         let plus2 = now.addingTimeInterval(5400)  // +90 Min
 
         // 1 + 2: DB-Daten parallel laden (aktuelle Stunde + nächste Stunde + übernächste)
-        async let batch1  = fetchPlan(for: now,   eva: crossing.stationEVA)
+        async let batch1  = fetchPlan(for: now, eva: crossing.stationEVA)
         async let batch2  = fetchPlan(for: plus1, eva: crossing.stationEVA)
         async let batch3  = fetchPlan(for: plus2, eva: crossing.stationEVA)
         async let changes = fetchChanges(eva: crossing.stationEVA)
@@ -122,7 +122,7 @@ struct TrainAPIService {
         let plus1 = now.addingTimeInterval(3600)
         let plus2 = now.addingTimeInterval(5400)
 
-        async let batch1  = fetchPlan(for: now,   eva: regionalEVA)
+        async let batch1  = fetchPlan(for: now, eva: regionalEVA)
         async let batch2  = fetchPlan(for: plus1, eva: regionalEVA)
         async let batch3  = fetchPlan(for: plus2, eva: regionalEVA)
         async let changes = fetchChanges(eva: regionalEVA)
@@ -156,7 +156,7 @@ struct TrainAPIService {
         let plus1 = now.addingTimeInterval(3600)
         let plus2 = now.addingTimeInterval(5400)  // +90 Min
 
-        async let batch1  = fetchPlan(for: now,   eva: crossing.stationEVA)
+        async let batch1  = fetchPlan(for: now, eva: crossing.stationEVA)
         async let batch2  = fetchPlan(for: plus1, eva: crossing.stationEVA)
         async let batch3  = fetchPlan(for: plus2, eva: crossing.stationEVA)
         async let changes = fetchChanges(eva: crossing.stationEVA)
@@ -237,26 +237,26 @@ struct TrainAPIService {
 
     // MARK: - Merge-Logik
 
-    /// DB liefert hier die Basis-Zeit (inkl. offizieller Verspätung aus der Realtime-Changes-
-    /// API) — als Fallback, solange kein Zug keine Live-GPS-Position hat. Diese Funktion hängt
-    /// bewusst NUR die TripId + Richtung an, OHNE Geops' eigenes stopsequence-`departureDelay`-
-    /// Feld zu übernehmen: dieses Feld war für einzelne Trips wiederholt unzuverlässig — mal
-    /// "Trip-Drift" (Zug fälschlich mit falscher Fahrplan-Instanz verknüpft, dadurch absurde
-    /// ±Werte), mal dauerhaft bei 0s hängend obwohl der Zug laut MVV/DB tatsächlich Verspätung
-    /// hat (vermutlich weil bei gekuppelten Zugteilen nur eine der beiden Trip-IDs echte
-    /// Live-GPS-Anbindung hat).
-    ///
-    /// WICHTIG: das ist NICHT dasselbe wie die GPS-Trajektorie (Live-Position × Zeit,
-    /// `liveCrossingEstimate` in GeopsRealtimeService) — die ist von diesem Trip-Drift-Problem
-    /// nicht betroffen (sie interpoliert die tatsächliche Fahrzeugposition, kein separat
-    /// gemeldetes Verspätungsfeld) und wird in CrossingViewModel.buildEvents als primäre,
-    /// sekundengenaue Zeitquelle verwendet, sobald sie verfügbar ist. Hier wird nur die TripId
-    /// durchgereicht, damit buildEvents sie nachschlagen kann.
-    ///   • Fahrtrichtung: Live-GPS-Bewegungsrichtung ist zuverlässiger als der DB-Pfadtext.
-    ///   • "Live-GPS bestätigt"-Badge: rein informativ, ändert nie die angezeigte Zeit.
-    ///   • Echte Durchfahrten ohne DB-Halt (Güterzüge, durchfahrende RE/RB) — das läuft über
-    ///     einen komplett separaten Mechanismus (detectNonSBahnApproach/freightApproaches in
-    ///     GeopsRealtimeService + CrossingViewModel), nicht über diese Merge-Funktion.
+    // DB liefert hier die Basis-Zeit (inkl. offizieller Verspätung aus der Realtime-Changes-
+    // API) — als Fallback, solange kein Zug keine Live-GPS-Position hat. Diese Funktion hängt
+    // bewusst NUR die TripId + Richtung an, OHNE Geops' eigenes stopsequence-`departureDelay`-
+    // Feld zu übernehmen: dieses Feld war für einzelne Trips wiederholt unzuverlässig — mal
+    // "Trip-Drift" (Zug fälschlich mit falscher Fahrplan-Instanz verknüpft, dadurch absurde
+    // ±Werte), mal dauerhaft bei 0s hängend obwohl der Zug laut MVV/DB tatsächlich Verspätung
+    // hat (vermutlich weil bei gekuppelten Zugteilen nur eine der beiden Trip-IDs echte
+    // Live-GPS-Anbindung hat).
+    //
+    // WICHTIG: das ist NICHT dasselbe wie die GPS-Trajektorie (Live-Position × Zeit,
+    // `liveCrossingEstimate` in GeopsRealtimeService) — die ist von diesem Trip-Drift-Problem
+    // nicht betroffen (sie interpoliert die tatsächliche Fahrzeugposition, kein separat
+    // gemeldetes Verspätungsfeld) und wird in CrossingViewModel.buildEvents als primäre,
+    // sekundengenaue Zeitquelle verwendet, sobald sie verfügbar ist. Hier wird nur die TripId
+    // durchgereicht, damit buildEvents sie nachschlagen kann.
+    //   • Fahrtrichtung: Live-GPS-Bewegungsrichtung ist zuverlässiger als der DB-Pfadtext.
+    //   • "Live-GPS bestätigt"-Badge: rein informativ, ändert nie die angezeigte Zeit.
+    //   • Echte Durchfahrten ohne DB-Halt (Güterzüge, durchfahrende RE/RB) — das läuft über
+    //     einen komplett separaten Mechanismus (detectNonSBahnApproach/freightApproaches in
+    //     GeopsRealtimeService + CrossingViewModel), nicht über diese Merge-Funktion.
     // `fileprivate` statt `private` (nicht `internal`!) — bleibt datei-scoped, reine
     // Compile-Zeit-Sichtbarkeit ohne Verhaltensänderung, ermöglicht aber Wiederverwendung durch
     // `combineForComparison` (Admin-Vergleichs-Tab, siehe unten) statt die fein abgestimmte
@@ -434,7 +434,7 @@ struct TrainAPIService {
                                  in stops: [GeopsStopDeparture],
                                  vehicles: [String: GeopsVehicle]) -> GeopsStopDeparture? {
         let tightTol: TimeInterval = 60    // 1 Minute (gleiche Linie)
-        let wideTol:  TimeInterval = 120   // 2 Minuten (Fallback)
+        let wideTol: TimeInterval = 120   // 2 Minuten (Fallback)
 
         // Bekanntes, abweichendes Ziel schließt den Kandidaten aus (siehe geopsDestinationHint).
         // Bei unbekanntem Ziel auf einer der beiden Seiten bleibt das Verhalten unverändert.
@@ -516,7 +516,7 @@ struct TrainAPIService {
         // nicht die DB-API selbst. Erzwingt bei jedem Aufruf eine echte Netzwerk-Anfrage.
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         request.setValue(dbClientId, forHTTPHeaderField: "DB-Client-Id")
-        request.setValue(dbApiKey,   forHTTPHeaderField: "DB-Api-Key")
+        request.setValue(dbApiKey, forHTTPHeaderField: "DB-Api-Key")
         request.setValue("application/xml", forHTTPHeaderField: "Accept")
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -749,7 +749,7 @@ struct TrainEntry: Identifiable, Codable {
         // verworfen wurden. Deshalb zählt primär die Liniennummer (lineRaw); die Kategorie
         // dient nur noch dazu, Fernverkehr (ICE/IC/EC/WB) zu erkennen und auszuschließen.
         let lineName: String
-        if (category.isEmpty || category == "S" || category == "ARV"), let sLine = sBahnLine {
+        if category.isEmpty || category == "S" || category == "ARV", let sLine = sBahnLine {
             // Nur bekannte Münchner S-Bahn-Linien akzeptieren, alles andere ablehnen statt zu
             // raten. Vorher wurde JEDE numerische Zugnummer > 9 (z.B. eine vierstellige
             // ICE-Nummer) fälschlich als "S1" angezeigt — inklusive deren echter, oft riesiger
@@ -807,7 +807,7 @@ struct TrainEntry: Identifiable, Codable {
         self.geopsMatchedTripId  = nil
         let detected = Self.detectDirection(
             departurePath: dp.path ?? "",
-            arrivalPath:   stop.ar?.path ?? ""
+            arrivalPath: stop.ar?.path ?? ""
         )
         self.direction = detected.direction
         self.finalDestinationHint = detected.destinationHint
@@ -843,7 +843,7 @@ struct TrainEntry: Identifiable, Codable {
         if depStops.contains(where: { s in freisungKeywords.contains { s.contains($0) } }) {
             return (.toFreising, destinationHint(depFolded))
         }
-        if depStops.contains(where: { s in munichKeywords.contains   { s.contains($0) } }) {
+        if depStops.contains(where: { s in munichKeywords.contains { s.contains($0) } }) {
             return (.toMunich, nil)
         }
 
@@ -852,7 +852,7 @@ struct TrainEntry: Identifiable, Codable {
             // sich das ZIEL nicht ableiten, deshalb hier immer destinationHint=nil (konservativ,
             // wie vor dieser Änderung).
             let arrStops = foldedForMatching(arrivalPath).components(separatedBy: "|")
-            if arrStops.contains(where: { s in munichKeywords.contains   { s.contains($0) } }) { return (.toFreising, nil) }
+            if arrStops.contains(where: { s in munichKeywords.contains { s.contains($0) } }) { return (.toFreising, nil) }
             if arrStops.contains(where: { s in freisungKeywords.contains { s.contains($0) } }) { return (.toMunich, nil) }
         }
 
@@ -877,7 +877,7 @@ enum APIError: LocalizedError {
 
 private extension Date {
     var yyMMdd: String { DateFormatter.yyMMdd.string(from: self) }
-    var HH: String     { DateFormatter.HH.string(from: self) }
+    var HH: String { DateFormatter.HH.string(from: self) }
 }
 
 extension Date {
