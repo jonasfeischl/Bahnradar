@@ -1263,14 +1263,18 @@ extension CrossingViewModel {
         WaitTimeTracker.shared.tick(isWaiting: isWaiting)
     }
 
-    /// Zwei einmalige Meilenstein-Ansagen beim Anfahren eines Übergangs. Die Näherungs-Ansage
-    /// ist bewusst NICHT ans isAppInBackground-Gate der Status-Ansagen gekoppelt (wie
-    /// announceAppActive(): Bestätigungs-Charakter, soll auch im Vordergrund hörbar sein) — die
-    /// Live-Status-Ansage dagegen schon (Nutzerentscheidung), siehe Guard unten. Dadurch ergibt
-    /// sich beim Verlassen der App während einer Fahrt automatisch die gewünschte Reihenfolge:
+    /// Zwei einmalige Meilenstein-Ansagen während einer Fahrt. Die Näherungs-Ansage bleibt an
+    /// isNearCrossing gebunden (per Definition über die Distanz zum Übergang definiert) und ist
+    /// bewusst NICHT ans isAppInBackground-Gate der Status-Ansagen gekoppelt (wie
+    /// announceAppActive(): Bestätigungs-Charakter, soll auch im Vordergrund hörbar sein). Die
+    /// Live-Status-Ansage hängt dagegen NUR noch an isAppInBackground, NICHT mehr an
+    /// isNearCrossing (Nutzerwunsch: soll bei jeder Fahrt kommen sobald Live-Daten für den
+    /// gewählten Übergang verfügbar sind, unabhängig von der aktuellen Entfernung dorthin).
+    /// Dadurch ergibt sich beim Verlassen der App während einer Fahrt die Reihenfolge:
     /// "Hintergrundmodus aktiv" (löst isAppInBackground aus) → "Live-Status verfügbar" (wird
-    /// dadurch erst jetzt wahr) → Status-Ansage — alle drei werden von VoiceAnnouncers
-    /// Warteschlange der Reihe nach abgespielt statt sich zu überlagern.
+    /// dadurch erst jetzt geprüft) → ggf. Status-Ansage sobald man tatsächlich in Reichweite
+    /// eines Übergangs kommt — alle von VoiceAnnouncers Warteschlange der Reihe nach abgespielt
+    /// statt sich zu überlagern.
     @MainActor
     private func evaluateLifecycleAnnouncements() {
         guard let announcer = voiceAnnouncer else { return }
@@ -1285,7 +1289,7 @@ extension CrossingViewModel {
             lastNearCrossingState = (crossingId: crossing.id, isNear: isNearCrossing)
         }
 
-        guard isNearCrossing, isAppInBackground else { return }
+        guard isAppInBackground else { return }
         let hasLive = nextEvents.contains { $0.isLiveData && $0.minutesUntil > 0 }
         if lastLiveStatusState?.crossingId != crossing.id || lastLiveStatusState?.hasLive != hasLive {
             if hasLive {

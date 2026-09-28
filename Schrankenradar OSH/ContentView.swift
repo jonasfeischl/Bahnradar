@@ -192,6 +192,10 @@ struct ContentView: View {
                     if locationMonitor.authorizationStatus == .authorizedAlways {
                         // Hörbare Bestätigung beim Verlassen der App, aber NUR während einer
                         // Fahrt (Nutzerentscheidung) — kein Hinweis beim simplen Wegwischen daheim.
+                        // Diagnose-Log analog zu Schrankenradar_OSHApp.swift:219 (announceAppActive)
+                        // — klärt, ob isDriving beim Backgrounding tatsächlich schon true ist oder
+                        // (Verdacht) GPS/CoreMotion zu diesem Zeitpunkt noch nicht so weit war.
+                        DebugLog.shared.add("Background-Ansage-Check: isDriving=\(viewModel.isDriving), isNearCrossing=\(viewModel.isNearCrossing), voiceEnabled=\(voiceEnabled) — announceBackgroundActive \(voiceEnabled && viewModel.isDriving ? "wird ausgelöst" : "wird NICHT ausgelöst")")
                         if voiceEnabled && viewModel.isDriving {
                             voiceAnnouncer.announceBackgroundActive()
                         }

@@ -144,6 +144,7 @@ final class GeopsRealtimeService {
     private var stopMatchFailureLogCount: [String: Int] = [:]
     private var lastNearMissLog: [String: Date] = [:]
     private var trajectoryUpdateCount = 0
+    private var nonSBahnUpdateCount = 0
     private var nonSBahnLastPos: [String: (lat: Double, lon: Double, updatedAt: Date)] = [:]
     // Bestätigungszähler pro "tripId_crossingId" — Approach erst ab 2 Treffern gültig
     private var nonSBahnConfirm: [String: Int] = [:]
@@ -501,10 +502,6 @@ extension GeopsRealtimeService {
             timeIntervals: timeIntervals
         )
         vehicles[tripId] = vehicle
-
-        let cutoff = Date().addingTimeInterval(-300)
-        vehicles = vehicles.filter { $0.value.updatedAt > cutoff }
-        pruneDirectionCaches(activeTripIds: Set(vehicles.keys).union(nonSBahnLastPos.keys))
         connectionState = .connected(trainCount: vehicles.count)
 
         // WICHTIG: Auch Trajektorien-Updates (Live-GPS-Position → Durchfahrtszeit +
@@ -515,9 +512,18 @@ extension GeopsRealtimeService {
 
         sendStopsequenceSubscription(tripId: tripId)
 
-        // Periodisches Cleanup
+        // Periodisches Cleanup — vehicles-Staleness-Filter + pruneDirectionCaches liefen früher
+        // bei JEDER Trajectory-Nachricht (Dictionary-Rebuild auf dem Main Actor) und waren laut
+        // Instruments die Hauptursache für die dichten Hitch-Cluster während der Fahrt. Die
+        // 300s-Staleness-Schwelle toleriert das Drosseln auf alle 100 Nachrichten problemlos;
+        // hasFreshVehicle/liveCrossingEstimate prüfen die Frische beim Lesen ohnehin selbst
+        // (90s-Gate), das Dictionary muss also nicht sofort bereinigt sein.
         trajectoryUpdateCount += 1
         if trajectoryUpdateCount % 100 == 0 {
+            let cutoff = Date().addingTimeInterval(-300)
+            vehicles = vehicles.filter { $0.value.updatedAt > cutoff }
+            pruneDirectionCaches(activeTripIds: Set(vehicles.keys).union(nonSBahnLastPos.keys))
+
             let activeTrips = Set(vehicles.keys)
             measuredPassages = measuredPassages.filter { key in
                 activeTrips.contains(where: { key.hasPrefix($0) })
@@ -1130,15 +1136,24 @@ extension GeopsRealtimeService {
 #endif
         }
 
-        // Abgelaufene Einträge bereinigen
+        // Abgelaufene Einträge bereinigen — freightApproaches ist klein (nur bestätigte
+        // Näherungen an den ~4 Übergängen) und bleibt für eine korrekte Anzeige ungedrosselt.
         let now = Date()
         freightApproaches = freightApproaches.filter { $0.value.crossingTime.timeIntervalSince(now) > -120 }
 
-        // Alten nonSBahn-Positions-Cache bereinigen (> 10 min unberührt)
-        nonSBahnLastPos = nonSBahnLastPos.filter {
-            now.timeIntervalSince($0.value.updatedAt) < 600
+        // nonSBahnLastPos + pruneDirectionCaches können auf ALLE im Bbox-Radius gesehenen
+        // Nicht-S-Bahn-Züge (RE/RB/Gz) anwachsen — gedrosselt, analog zum S-Bahn-Pfad in
+        // handleTrajectoryMessage. Lief früher bei JEDER Nicht-S-Bahn-Nachricht und war ein
+        // zweiter, unabhängiger Dictionary-Rebuild-Hotspot auf dem Main Actor (siehe Instruments:
+        // dichte Hitch-Cluster während der Fahrt).
+        nonSBahnUpdateCount += 1
+        if nonSBahnUpdateCount % 100 == 0 {
+            // Alten nonSBahn-Positions-Cache bereinigen (> 10 min unberührt)
+            nonSBahnLastPos = nonSBahnLastPos.filter {
+                now.timeIntervalSince($0.value.updatedAt) < 600
+            }
+            pruneDirectionCaches(activeTripIds: Set(vehicles.keys).union(nonSBahnLastPos.keys))
         }
-        pruneDirectionCaches(activeTripIds: Set(vehicles.keys).union(nonSBahnLastPos.keys))
         // Bestätigungszähler begrenzen (nur aktive Trips behalten)
         if nonSBahnConfirm.count > 200 {
             let activeTrips = Set(nonSBahnLastPos.keys)
